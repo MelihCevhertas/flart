@@ -1,0 +1,27 @@
+# MANUAL CAPTURE — see build_apk_failure.stdout.txt for full context.
+# Source: /tmp/flart_test_app with `String s = 42;` injected.
+# Flutter: 3.41.9 (stable, 2026-04-29)
+# Dart: 3.11.5 (stable, 2026-04-15)
+# Captured: 2026-05-17
+# Command: flutter build apk --debug (stderr)
+#
+lib/main.dart:3:12: Error: A value of type 'int' can't be assigned to a variable of type 'String'.
+String s = 42;
+           ^
+Target kernel_snapshot_program failed: Exception
+
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileFlutterBuildDebug'.
+> Process 'command '/Users/melihcevhertas/Development/flutter/bin/flutter'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 1s
+Gradle task assembleDebug failed with exit code 1

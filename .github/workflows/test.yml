@@ -1,0 +1,36 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          # Pinned to the Dart SDK that produced the v0.1.0 fixtures (see
+          # tools/generate_fixtures.sh headers). Bump in lockstep with the
+          # workspace `environment.sdk` constraints when upgrading.
+          sdk: 3.11.5
+
+      - run: dart pub get
+
+      - name: dart analyze
+        run: dart analyze
+
+      - name: tests
+        # `dart test` from the workspace root does not auto-discover member
+        # packages — `tools/test_all.sh` cd's into each one so per-package
+        # transitive resolve happens before tests run.
+        run: bash tools/test_all.sh

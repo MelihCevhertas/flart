@@ -1,0 +1,23 @@
+name: flart_cli
+description: CLI entry point for flart — argument parsing and command dispatch.
+publish_to: none
+version: 0.1.0-dev
+
+environment:
+  sdk: ^3.5.0
+
+resolution: workspace
+
+dependencies:
+  flart_core:
+    path: ../flart_core
+  flart_executor:
+    path: ../flart_executor
+  flart_filters:
+    path: ../flart_filters
+  flart_savings:
+    path: ../flart_savings
+  flart_hooks:
+    path: ../flart_hooks
+  args: ^2.5.0
+  path: ^1.9.0

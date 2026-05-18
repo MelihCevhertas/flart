@@ -1,0 +1,18 @@
+# MANUAL CAPTURE — `flutter devices` depends on host state.
+# Source: developer macOS with Chrome installed (no physical device).
+# Flutter: 3.41.9 (stable, 2026-04-29)
+# Captured: 2026-05-17
+# Command: flutter devices
+# Stream: stdout
+#
+Found 2 connected devices:
+  macOS (desktop) • macos  • darwin-arm64   • macOS 15.6.1 24G90 darwin-arm64
+  Chrome (web)    • chrome • web-javascript • Google Chrome 148.0.7778.168
+
+Checking for wireless devices...
+
+No wireless devices were found.
+
+Run "flutter emulators" to list and start any available device emulators.
+
+If you expected another device to be detected, please run "flutter doctor" to diagnose potential issues. You may also try increasing the time to wait for connected devices with the "--device-timeout" flag. Visit https://flutter.dev/setup/ for troubleshooting tips.

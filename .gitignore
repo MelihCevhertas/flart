@@ -1,0 +1,35 @@
+# Dart tool / build artifacts
+.dart_tool/
+.packages
+build/
+doc/api/
+.pub-cache/
+.pub/
+
+# Test coverage
+coverage/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.atom/
+.cscope/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# flart binary outputs (uzantısız Mac/Linux, .exe Windows)
+/flart
+/flart.exe
+flart-*
+packages/flart_cli/bin/flart
+packages/flart_cli/bin/flart.exe
+
+# flart runtime data (kullanıcı makinesinde ~/.local/share/flart/ kullanılır;
+# proje dizininde test/dev sırasında oluşursa repoya girmesin)
+.flart/
+
+# Log files
+*.log

@@ -1,0 +1,9 @@
+# MANUAL CAPTURE — `dart compile exe` is fast but needs a real .dart entry
+# point; not portable to the fixture generator without more scaffolding.
+# Source: /tmp/flart_test_app/bin/compile_test.dart (one-liner `void main() => print('hello');`)
+# Dart: 3.11.5 (stable, 2026-04-15)
+# Captured: 2026-05-17
+# Command: dart compile exe bin/compile_test.dart -o /tmp/dummy_compile
+# Stream: stdout
+#
+Generated: /tmp/dummy_compile

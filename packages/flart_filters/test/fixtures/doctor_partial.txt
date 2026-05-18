@@ -1,0 +1,22 @@
+# MANUAL CAPTURE — `flutter doctor` requires the local Flutter SDK + system
+# install state; not portable enough for the fixture generator.
+# Source: developer host (macos 15.6.1 darwin-arm64)
+# Flutter: 3.41.9 (stable, 2026-04-29)
+# Dart: 3.11.5 (stable, 2026-04-15)
+# Captured: 2026-05-17
+# Command: flutter doctor
+# Note: the partial Android-toolchain row is a recurring "licenses not
+# accepted" prompt — easy to reproduce by skipping `flutter doctor --android-licenses`.
+# To regenerate:
+#   flutter doctor > <fixture>.txt 2>&1
+#
+Doctor summary (to see all details, run flutter doctor -v):
+[✓] Flutter (Channel stable, 3.41.9, on macOS 15.6.1 24G90 darwin-arm64, locale tr-TR)
+[!] Android toolchain - develop for Android devices (Android SDK version 36.0.0)
+    ! Some Android licenses not accepted. To resolve this, run: flutter doctor --android-licenses
+[✓] Xcode - develop for iOS and macOS (Xcode 16.4)
+[✓] Chrome - develop for the web
+[✓] Connected device (2 available)
+[✓] Network resources
+
+! Doctor found issues in 1 category.

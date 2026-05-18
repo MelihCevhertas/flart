@@ -1,0 +1,43 @@
+# MANUAL CAPTURE — `flutter pub outdated --json` is the most stable parse target.
+# Source: /tmp/flart_test_app (fresh `flutter create`)
+# Flutter: 3.41.9 (stable, 2026-04-29)
+# Captured: 2026-05-17
+# Command: flutter pub outdated --json
+# Stream: stdout
+#
+{
+  "packages": [
+    {
+      "package": "matcher",
+      "kind": "transitive",
+      "current": { "version": "0.12.19" },
+      "upgradable": { "version": "0.12.19" },
+      "resolvable": { "version": "0.12.19" },
+      "latest": { "version": "0.12.20" }
+    },
+    {
+      "package": "meta",
+      "kind": "transitive",
+      "current": { "version": "1.17.0" },
+      "upgradable": { "version": "1.17.0" },
+      "resolvable": { "version": "1.17.0" },
+      "latest": { "version": "1.18.2" }
+    },
+    {
+      "package": "vector_math",
+      "kind": "transitive",
+      "current": { "version": "2.2.0" },
+      "upgradable": { "version": "2.2.0" },
+      "resolvable": { "version": "2.2.0" },
+      "latest": { "version": "2.3.0" }
+    },
+    {
+      "package": "test_api",
+      "kind": "transitive",
+      "current": { "version": "0.7.10" },
+      "upgradable": { "version": "0.7.10" },
+      "resolvable": { "version": "0.7.10" },
+      "latest": { "version": "0.7.12" }
+    }
+  ]
+}

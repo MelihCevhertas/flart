@@ -1,0 +1,15 @@
+name: flart_core
+description: Core infrastructure for flart — config, storage, token estimation, truncation, tee, logging.
+publish_to: none
+version: 0.1.0-dev
+
+environment:
+  sdk: ^3.5.0
+
+resolution: workspace
+
+dependencies:
+  yaml: ^3.1.2
+  sqlite3: ^2.4.0
+  path: ^1.9.0
+  meta: ^1.15.0

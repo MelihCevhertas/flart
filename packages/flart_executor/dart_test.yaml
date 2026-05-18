@@ -1,0 +1,5 @@
+tags:
+  integration:
+    description: >
+      End-to-end tests that spawn real `dart`/`bash`/`python`/`node` processes.
+      Excluded from the fast inner-loop via `dart test --exclude-tags=integration`.

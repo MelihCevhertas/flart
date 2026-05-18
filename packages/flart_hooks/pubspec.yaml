@@ -1,0 +1,14 @@
+name: flart_hooks
+description: Claude Code hook installation and command rewriting for flart.
+publish_to: none
+version: 0.1.0-dev
+
+environment:
+  sdk: ^3.5.0
+
+resolution: workspace
+
+dependencies:
+  flart_core:
+    path: ../flart_core
+  path: ^1.9.0

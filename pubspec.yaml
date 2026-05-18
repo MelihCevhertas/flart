@@ -1,0 +1,19 @@
+name: flart_workspace
+description: Workspace root for the flart Flutter/Dart token optimization tool.
+publish_to: none
+version: 0.1.0-dev
+
+environment:
+  sdk: ^3.5.0
+
+workspace:
+  - packages/flart_core
+  - packages/flart_executor
+  - packages/flart_filters
+  - packages/flart_savings
+  - packages/flart_hooks
+  - packages/flart_cli
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

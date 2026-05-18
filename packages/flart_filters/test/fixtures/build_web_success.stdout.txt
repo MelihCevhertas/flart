@@ -1,0 +1,15 @@
+# MANUAL CAPTURE — flutter build is too slow for tools/generate_fixtures.sh.
+# Source: /tmp/flart_test_app (fresh `flutter create`)
+# Flutter: 3.41.9 (stable, 2026-04-29)
+# Dart: 3.11.5 (stable, 2026-04-15)
+# Captured: 2026-05-17
+# Command: flutter build web (stdout)
+# Stream: stdout (Wasm dry-run info on stderr — see .stderr.txt)
+# To regenerate:
+#   cd /tmp/flart_test_app
+#   flutter clean
+#   flutter build web > stdout.txt 2> stderr.txt
+#
+Compiling lib/main.dart for the Web...
+Compiling lib/main.dart for the Web...                             11,6s
+✓ Built build/web

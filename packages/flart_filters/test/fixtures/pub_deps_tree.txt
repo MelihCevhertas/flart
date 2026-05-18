@@ -1,0 +1,33 @@
+# MANUAL CAPTURE — `flutter pub deps` ASCII tree depends on the host SDK.
+# Source: /tmp/flart_test_app (fresh `flutter create`)
+# Flutter: 3.41.9 (stable, 2026-04-29)
+# Captured: 2026-05-17
+# Command: flutter pub deps (first 25 lines — actual output is ~66 lines)
+# Stream: stdout
+# Note: lines with trailing `...` are pruned recursive references.
+#
+Dart SDK 3.11.5
+Flutter SDK 3.41.9
+flart_test_app 1.0.0+1
+├── cupertino_icons 1.0.9
+├── flutter 0.0.0
+│   ├── characters 1.4.1
+│   ├── collection 1.19.1
+│   ├── material_color_utilities 0.13.0
+│   │   └── collection...
+│   ├── meta 1.17.0
+│   ├── sky_engine 0.0.0
+│   └── vector_math 2.2.0
+├── flutter_lints 6.0.0
+│   └── lints 6.1.0
+└── flutter_test 0.0.0
+    ├── clock 1.1.2
+    ├── collection...
+    ├── fake_async 1.3.3
+    │   ├── clock...
+    │   └── collection...
+    ├── flutter...
+    ├── leak_tracker_flutter_testing 3.0.10
+    │   ├── flutter...
+    │   ├── leak_tracker 11.0.2
+    │   │   ├── clock...

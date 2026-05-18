@@ -1,0 +1,95 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: build ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest          # Apple Silicon
+            arch: arm64
+            asset: flart-macos-arm64
+          - os: macos-13              # Intel
+            arch: x64
+            asset: flart-macos-x64
+          - os: ubuntu-latest         # Linux x64
+            arch: x64
+            asset: flart-linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history for `git rev-parse`
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.11.5
+
+      - run: dart pub get
+
+      - name: Compute version metadata
+        id: meta
+        shell: bash
+        run: |
+          # GITHUB_REF is refs/tags/v0.1.0 — strip prefix + leading v.
+          version="${GITHUB_REF#refs/tags/v}"
+          sha="$(git rev-parse --short HEAD)"
+          date="$(date -u +%Y-%m-%d)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha"         >> "$GITHUB_OUTPUT"
+          echo "date=$date"       >> "$GITHUB_OUTPUT"
+
+      - name: Build binary
+        shell: bash
+        run: |
+          dart compile exe packages/flart_cli/bin/flart.dart \
+            -o "${{ matrix.asset }}" \
+            --define=FLART_VERSION="${{ steps.meta.outputs.version }}" \
+            --define=GIT_SHA="${{ steps.meta.outputs.sha }}" \
+            --define=BUILD_DATE="${{ steps.meta.outputs.date }}"
+
+      - name: Smoke test binary
+        shell: bash
+        run: |
+          ./${{ matrix.asset }} version
+          ./${{ matrix.asset }} help | head -25
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p out
+          find artifacts -type f -exec mv {} out/ \;
+          ls -la out/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
+          # Release is created as a draft so Melih can review the binaries
+          # before publishing. Flip `draft: false` after the first
+          # successful release if you want subsequent tags to publish
+          # automatically.
+          draft: true

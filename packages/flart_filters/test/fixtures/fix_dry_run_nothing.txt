@@ -1,0 +1,15 @@
+# MANUAL CAPTURE — `dart fix` needs a real project with a `pubspec.yaml`.
+# The fixture lab in tools/generate_fixtures.sh has its own pubspec; we could
+# wire this into the script, but keeping it manual matches the build/doctor
+# pattern.
+# Source: /tmp/flart_test_app (fresh `flutter create`, no fixes needed)
+# Flutter: 3.41.9 (stable, 2026-04-29)
+# Dart: 3.11.5 (stable, 2026-04-15)
+# Captured: 2026-05-17
+# Command: dart fix --dry-run
+# To regenerate:
+#   cd /tmp/flart_test_app
+#   dart fix --dry-run > <fixture>.txt 2>&1
+#
+Computing fixes in flart_test_app (dry run)...
+Nothing to fix!

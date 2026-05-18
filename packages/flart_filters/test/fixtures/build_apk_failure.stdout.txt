@@ -1,0 +1,17 @@
+# MANUAL CAPTURE — flutter build is too slow for tools/generate_fixtures.sh.
+# Source: /tmp/flart_test_app with this line prepended to lib/main.dart:
+#   String s = 42;
+# Flutter: 3.41.9 (stable, 2026-04-29)
+# Dart: 3.11.5 (stable, 2026-04-15)
+# Captured: 2026-05-17
+# Command: flutter build apk --debug (stdout)
+# Stream: stdout (errors land on stderr — see build_apk_failure.stderr.txt)
+# To regenerate:
+#   cd /tmp/flart_test_app
+#   sed -i.bak '1i\
+#   String s = 42;' lib/main.dart
+#   flutter build apk --debug > stdout.txt 2> stderr.txt
+#   mv lib/main.dart.bak lib/main.dart   # restore
+#
+Running Gradle task 'assembleDebug'...
+Running Gradle task 'assembleDebug'...                             1.512ms

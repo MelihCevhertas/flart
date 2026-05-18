@@ -1,0 +1,26 @@
+# MANUAL CAPTURE — see fix_dry_run_nothing.txt header for context.
+# Source: /tmp/flart_test_app with `import 'dart:io';` prepended to
+# lib/main.dart (unused → triggers `unused_import` lint).
+# Flutter: 3.41.9 (stable, 2026-04-29)
+# Dart: 3.11.5 (stable, 2026-04-15)
+# Captured: 2026-05-17
+# Command: dart fix --dry-run
+# To regenerate:
+#   cd /tmp/flart_test_app
+#   sed -i.bak "1i\\
+#   import 'dart:io';" lib/main.dart
+#   dart fix --dry-run > <fixture>.txt 2>&1
+#   mv lib/main.dart.bak lib/main.dart
+#
+Computing fixes in flart_test_app (dry run)...
+
+1 proposed fix in 1 file.
+
+lib/main.dart
+  unused_import - 1 fix
+
+To fix an individual diagnostic, run one of:
+  dart fix --apply --code=unused_import
+
+To fix all diagnostics, run:
+  dart fix --apply

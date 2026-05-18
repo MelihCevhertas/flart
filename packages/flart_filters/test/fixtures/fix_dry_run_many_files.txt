@@ -1,0 +1,37 @@
+# MANUAL CAPTURE — `dart fix --dry-run` on Wonderous (head excerpt).
+# Demonstrates the realistic shape where same rule recurs across many files
+# (the case the rule-summary collapse targets).
+# Source: /tmp/wonderous (commit head as of 2026-05-18)
+# Flutter: 3.41.9, Dart: 3.11.5
+# Captured: 2026-05-18
+# Command: dart fix --dry-run
+# Note: this is a 6-file head excerpt; the real run had 92 fixes in 55 files.
+#
+Computing fixes in wonderous (dry run)...
+
+8 proposed fixes in 6 files.
+
+lib/_tools/artifact_search_helper.dart
+  unnecessary_underscores - 1 fix
+
+lib/ui/common/collectible_item.dart
+  unnecessary_underscores - 1 fix
+
+lib/ui/common/controls/app_image.dart
+  unnecessary_underscores - 2 fixes
+
+lib/ui/common/controls/scroll_decorator.dart
+  unnecessary_underscores - 1 fix
+
+lib/ui/common/fade_color_transition.dart
+  unnecessary_underscores - 1 fix
+  prefer_const_constructors - 1 fix
+
+lib/ui/common/gradient_container.dart
+  unused_import - 1 fix
+
+To fix an individual diagnostic, run one of:
+  dart fix --apply --code=unnecessary_underscores
+
+To fix all diagnostics, run:
+  dart fix --apply
