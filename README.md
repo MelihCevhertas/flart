@@ -8,11 +8,15 @@ prints 20 KB of warnings becomes a 200-byte summary; a `flutter test` JSON
 event stream becomes one `PASSED N/N` line; a `flutter build` failure
 preserves the actual compile errors while dropping Gradle daemon spam.
 
-Measured average across 17 invocations on three real projects (Wonderous,
-flutter_todos, this workspace itself): **~91% reduction in agent-visible
-bytes/tokens**. Real-world session savings depend on command mix and hook
-adoption — see [Verifying savings](#verifying-savings) for how to read your
-own numbers after install.
+Validated inside a real Claude Code session on the open-source
+[Wonderous](https://github.com/gskinnerTeam/flutter-wonderous-app) Flutter
+app: across 11 invocations spanning `analyze`, `fix`, `build`, and `test`,
+flart compressed 82.6 KB of tool output down to 1.4 KB — a **98.3%
+reduction (~21,807 tokens saved)** while the agent fixed 47 real warnings
+to zero. See [Real-world measurement](#real-world-measurement) for the
+per-command breakdown. Per-invocation numbers across other projects sit
+in [Typical savings](#typical-savings); your real-session savings depend
+on command mix and hook adoption.
 
 > Status: **v0.1.0 — first public release.** macOS (Apple Silicon) +
 > Linux (x64). Single binary, no runtime dependencies beyond Dart/Flutter
@@ -150,6 +154,40 @@ project with a `pubspec.yaml`).
 | `flart savings [flags...]`             | —                                    | Reports: default, `--by-command`, `--by-module`, `--top`, `--details`, `--json`, `--csv`, `--graph`, `--reset`. |
 | `flart init [flags...]`                | —                                    | Install/inspect the Claude Code hook + CLAUDE.md routing block.         |
 | `flart version`                        | —                                    | Semver + commit SHA.                                                    |
+
+---
+
+## Real-world measurement
+
+We ran flart against the open-source Wonderous Flutter app inside a fresh
+Claude Code session (30-minute task: clean up analyzer warnings, run
+tests, attempt a release build). The agent invoked flart 11 times across
+4 command types and ended with 47 warnings → 0, applying 91 fixes across
+54 files. The hook engaged, CLAUDE.md routing worked end-to-end, and the
+tee mechanism was used by the agent to retrieve full output on failure.
+
+**Aggregate:** 82.6 KB raw tool output → 1.4 KB filtered. **98.3%
+reduction, ~21,807 tokens saved.**
+
+| Command         | Invocations | % saved |
+| --------------- | ----------: | ------: |
+| `flart analyze` |           7 |    98.5 |
+| `flart fix`     |           2 |    97.1 |
+| `flart build`   |           1 |    92.6 |
+| `flart test`    |           1 |    48.5 |
+
+`flart test` shows lower compression because the run had **zero tests**
+(small raw output, fixed-size summary header). Failure scenarios were
+exercised too: a `flart build` against the project's NDK-missing config
+surfaced the actual error line while dropping Gradle daemon spam.
+
+Reproduce on your own project:
+
+```bash
+flart init                  # install the Claude Code hook
+# ...have a normal coding session with the agent...
+flart savings --by-command  # see your numbers
+```
 
 ---
 

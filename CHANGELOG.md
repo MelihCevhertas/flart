@@ -5,9 +5,11 @@ All notable changes to flart will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] — 2026-05-XX (first public release)
+## [0.1.0] — 2026-05-19 (first public release)
 
-First usable release. Targets macOS + Linux, Dart 3.11.5 / Flutter 3.41.9.
+First usable release. Targets macOS (Apple Silicon) + Linux (x64), Dart
+3.11.5 / Flutter 3.41.9. Promoted from `v0.1.0-rc1` after a real Claude
+Code agent-session measurement on Wonderous (see Performance below).
 
 ### Added — flart_core (infrastructure)
 
@@ -75,9 +77,15 @@ First usable release. Targets macOS + Linux, Dart 3.11.5 / Flutter 3.41.9.
 
 ### Performance
 
-Average across 17 measurements on three real projects (Wonderous,
-flutter_todos, this workspace): **~91% reduction in agent-visible
-bytes/tokens**. Highlights:
+**Real Claude Code agent-session on Wonderous (rc1 validation, 30-min
+task):** 11 invocations across analyze / fix / build / test → 82.6 KB raw
+→ 1.4 KB filtered. **98.3% reduction, ~21,807 tokens saved.** The agent
+went from 47 analyzer warnings to 0 (91 fixes across 54 files); hook +
+routing + tee all engaged end-to-end. Per-command savings: analyze 98.5%
+(7×), fix 97.1% (2×), build 92.6% (1×), test 48.5% (1× — zero-test run).
+
+**Per-invocation measurements** across three projects (Wonderous,
+flutter_todos, this workspace, 17 captures): ~91% average. Highlights:
 
 - `flart analyze` (Wonderous): 19,836 → 257 B (98.7%)
 - `flart test` (flutter_todos, 144 tests): 105,593 → 29 B (99.97%)
@@ -90,9 +98,12 @@ was <30 MB.
 
 ### Known limitations
 
-- Windows is untested. CI matrix is mac+linux only.
+- Windows is untested. CI matrix is macOS arm64 + Linux x64 only. v0.2.0.
+- Intel Mac (`macos-13`) not in the binary release — GitHub Actions Intel
+  runners are 50+ min queued. Build from source per README Limitations.
+  v0.2.0.
 - `fvm`-wrapped commands (`fvm flutter analyze`) are not rewritten. Use
-  shell aliases for flutter/dart, or wait for v1.1.
+  shell aliases for flutter/dart, or wait for v0.2.0.
 - `flutter run` (interactive hot-reload) is not wrapped.
 - iOS `ipa` builds are filter-ready but not measured in this release.
 - Token counts are estimates (±15% relative to Anthropic's actual
@@ -104,6 +115,6 @@ was <30 MB.
 - Two fixture pipelines: `tools/generate_fixtures.sh` (auto, 14 files)
   and manual captures with full-context headers (13 files for build /
   doctor / fix / etc.).
-- Plan / decision log: [`flart_PLAN.md`](./flart_PLAN.md) v1.8.
+- Plan / decision log: [`flart_PLAN.md`](./flart_PLAN.md) v1.13.
 
 [0.1.0]: https://github.com/MelihCevhertas/flart/releases/tag/v0.1.0
