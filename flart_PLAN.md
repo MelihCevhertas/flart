@@ -1,12 +1,14 @@
 # flart — Flutter/Dart Token Optimization Tool
 
-**Belge sürümü:** 1.11
+**Belge sürümü:** 1.12
 **Tarih:** 18 Mayıs 2026
 **Hedef geliştirme ortamı:** Claude Code
 **Tahmini geliştirme süresi:** 18–25 gün full-time / 5–7 hafta part-time
 **License:** MIT (tek lisans, tüm paketler dahil)
 
 ## Değişiklik Geçmişi
+
+**v1.12 (19 Mayıs 2026):** macOS Intel x64 (`macos-13`) v0.2.0'a ertelendi. (a) **Sebep:** v0.1.0-rc1 tag'lendikten sonra `release.yml` matrix build'inde `macos-13` job'ı 52 dakika queue'da bekledi — GitHub Actions Intel Mac runner availability sürdürülemez. Apple Silicon + Linux runner'lar 5 dk'da pickup oluyor. (b) **Geliştirici test imkanı yok:** Mac arm64 host'tan macos-13 binary'sini lokal smoke etmek mümkün değil — Intel Mac kullanıcı pool'u Apple Silicon transition'la birlikte küçülüyor, ROI düşük. (c) **release.yml matrix sadeleştirildi:** `macos-13` entry'si tamamen kaldırıldı, kalan iki target `macos-latest` (arm64) + `ubuntu-latest` (x64). Build süresi tahmini 5 dk. (d) **README Limitations:** Intel Mac kullanıcıları için "build from source" 5-satırlık snippet eklendi (`git clone` → `dart pub get` → `dart compile exe` → `mv /usr/local/bin/`). Status banner "macOS + Linux" → "macOS (Apple Silicon) + Linux (x64)". (e) **Section 1.3 + 14.5 güncellendi:** Intel Mac Kapsam Dışı listesine; v0.2.0 backlog'a Windows ile birlikte. (f) **Tag re-create:** v0.1.0-rc1 tag'i silinip yeni commit (`Drop macos-13 from release matrix`) üzerine yeniden atılır; queued macos-13 run iptal edilir.
 
 **v1.11 (19 Mayıs 2026):** Post-push CI cleanup + Windows desteğinin v0.2.0'a ertelenmesi. (a) **macOS CI test cleanup fix:** `packages/flart_cli/test/analyze_command_test.dart` son test'i (`DB filtered_bytes == captured stdout bytes`) sonrası `Directory.current` silinmiş `tmpDir`'de kalıyordu — macOS `getcwd()` katı, `PathNotFoundException` ile crash; Linux toleranslı, ubuntu-latest geçiyordu. `setUp`'ta `originalCwd` capture edilip `addTearDown` tek callback içinde **önce restore, sonra delete** sırasıyla yürütülecek şekilde refactor edildi. Grep ile workspace'te `Directory.current` mutate eden başka test olmadığı doğrulandı; `withTempCwd` helper abstraction'ı reddedildi (tek caller için premature). (b) **Windows desteği v0.2.0'a ertelendi (Section 1.3 + 14.5):** Launch hızı önceliği + Mac-only geliştirme ortamı gerekçesiyle v0.1.0'da Windows hedeflenmiyor. Gerçek kapsam: hook protocol (bash/PS veya direkt binary), path handling (XDG vs APPDATA), CI matrix (windows-latest), `install.ps1`, fixture line ending normalizasyonu. Tahmini iş 2 hafta full-time. README "Limitations" mevcut Windows notu yeterli. v0.1.0 sonrası gerçek kullanıcı verisi gelince yeniden değerlendirilecek.
 
@@ -67,7 +69,8 @@ Bu sürümde **bilerek yapmadığımız** şeyler (gelecek versiyonlar için not
 - Telemetry / network çağrısı — tüm veri lokal kalır.
 - Multi-agent desteği (Cursor, Gemini CLI, Codex) — sadece Claude Code hedefli.
 - Interaktif komutlar (`flutter run` hot reload modu) — filter etmesi karmaşık, v1.1'e ertelendi.
-- Windows desteği — launch hızı + Mac-only geliştirme ortamı gerekçesiyle v0.2.0 yol haritasına ertelendi (bkz. Section 14.5). v0.1.0 macOS (arm64/x64) ve Linux (x64) hedefler.
+- Windows desteği — launch hızı + Mac-only geliştirme ortamı gerekçesiyle v0.2.0 yol haritasına ertelendi (bkz. Section 14.5). v0.1.0 macOS (Apple Silicon) ve Linux (x64) hedefler.
+- macOS Intel x64 (`macos-13`) — Apple Silicon transition pool küçülüyor + GitHub Actions Intel Mac runner queue 50+ dakika, v0.2.0'a ertelendi (bkz. Section 14.5). Intel Mac kullanıcıları "build from source" yolunu izler (README Limitations).
 
 ### 1.4 İsim ve Marka
 
@@ -1822,9 +1825,10 @@ Faz 3 audit'inden ve Faz 4 implementasyonundan kalan iyileştirme adayları. v1.
 - Fix filter `-v` ile per-file detail expand (şu an raw `dart fix --dry-run` öneriliyor)
 - iOS ipa build fixture (Mac dev env'i lab'a entegre edilirse)
 
-**v0.2.0'a ertelendi (Plan v1.11):**
+**v0.2.0'a ertelendi (Plan v1.11+):**
 
-- **Windows desteği** — hook protocol (bash/PS veya direkt binary çağrısı, mevcut `rewrite.sh` Windows'ta çalışmaz), path handling (`XDG_CONFIG_HOME`/`XDG_DATA_HOME` yerine `%APPDATA%`/`%LOCALAPPDATA%`), CI matrix'e `windows-latest` eklenmesi (test fixture line ending normalizasyonu dahil), `install.ps1` (PowerShell muadili), `release.yml` Windows binary build (mevcut `flart-windows-x64.exe` placeholder Section 12.2'de duruyor ama henüz pipeline'a bağlı değil). Tahmini iş 2 hafta full-time. v0.1.0 launch sonrası gerçek kullanıcı talebi geldiğinde önceliklendirilecek.
+- **Windows desteği** (Plan v1.11) — hook protocol (bash/PS veya direkt binary çağrısı, mevcut `rewrite.sh` Windows'ta çalışmaz), path handling (`XDG_CONFIG_HOME`/`XDG_DATA_HOME` yerine `%APPDATA%`/`%LOCALAPPDATA%`), CI matrix'e `windows-latest` eklenmesi (test fixture line ending normalizasyonu dahil), `install.ps1` (PowerShell muadili), `release.yml` Windows binary build (mevcut `flart-windows-x64.exe` placeholder Section 12.2'de duruyor ama henüz pipeline'a bağlı değil). Tahmini iş 2 hafta full-time. v0.1.0 launch sonrası gerçek kullanıcı talebi geldiğinde önceliklendirilecek.
+- **macOS Intel x64 (`macos-13`)** (Plan v1.12) — runner availability sorunu (GitHub Actions Intel Mac queue 50+ dk, sürdürülemez) + geliştirici lokal test imkanı yok (Mac arm64 host). Windows ile birlikte v0.2.0'da ele alınacak: dedicated self-hosted Intel runner veya GitHub Actions Intel runner SLA iyileşene kadar. Intel Mac kullanıcıları v0.1.0'da "build from source" yolunu izler (README Limitations).
 
 ---
 

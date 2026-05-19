@@ -14,9 +14,11 @@ bytes/tokens**. Real-world session savings depend on command mix and hook
 adoption — see [Verifying savings](#verifying-savings) for how to read your
 own numbers after install.
 
-> Status: **v0.1.0 — first public release.** macOS + Linux. Single binary,
-> no runtime dependencies beyond Dart/Flutter and `jq` (for the Claude Code
-> hook). Windows + `fvm` support deferred to v1.1.
+> Status: **v0.1.0 — first public release.** macOS (Apple Silicon) +
+> Linux (x64). Single binary, no runtime dependencies beyond Dart/Flutter
+> and `jq` (for the Claude Code hook). Intel Mac, Windows, and `fvm`
+> support deferred to v0.2.0 — Intel Mac users can build from source
+> (see [Limitations](#limitations)).
 
 ---
 
@@ -265,7 +267,21 @@ Environment overrides:
 ## Limitations
 
 - **Windows untested.** Code paths are mostly portable, but no CI run
-  on Windows yet. v1.1.
+  on Windows yet. v0.2.0.
+- **macOS Intel x64 not in binary release.** GitHub Actions Intel Mac
+  runners (`macos-13`) sit in queue for 50+ minutes, which is incompatible
+  with the rapid release cadence. Apple Silicon is the install target;
+  Intel Mac users can build from source:
+
+  ```bash
+  git clone https://github.com/MelihCevhertas/flart.git
+  cd flart
+  dart pub get
+  dart compile exe packages/flart_cli/bin/flart.dart -o flart
+  sudo mv flart /usr/local/bin/
+  ```
+
+  Tracked for v0.2.0 alongside Windows.
 - **`fvm` not supported.** `fvm flutter analyze` flows through unchanged.
   Workaround: alias `flutter` and `dart` to your fvm shims, or wait for
   v1.1's wrapper-aware rewrite.
