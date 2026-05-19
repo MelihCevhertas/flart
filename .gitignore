@@ -33,3 +33,6 @@ packages/flart_cli/bin/flart.exe
 
 # Log files
 *.log
+
+# Claude Code per-session runtime state (ScheduleWakeup lock, etc.)
+.claude/
