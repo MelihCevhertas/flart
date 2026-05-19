@@ -32,29 +32,38 @@ on command mix and hook adoption.
 
 ## What it does
 
-Two paradigms in one binary:
+Three paradigms in one binary:
 
-1. **Reactive filters.** A PreToolUse hook rewrites `flutter analyze` →
-   `flart analyze`, `flutter test` → `flart test`, etc. The wrapped command
-   runs as normal, but its output is parsed and emitted in a compact form
-   — only the lines the agent actually needs to act on.
+1. **Reactive filters.** A PreToolUse / Bash hook rewrites `flutter
+   analyze` → `flart analyze`, `flutter test` → `flart test`, etc. The
+   wrapped command runs as normal, but its output is parsed and emitted
+   in a compact form — only the lines the agent actually needs to act
+   on.
 
-2. **Sandbox executor.** Instead of asking the agent to read 30 files to
-   answer "how many providers does this app have?", let it write a one-liner:
-   `flart exec dart 'print(Directory("lib").listSync(recursive: true)...)'`.
-   The script runs in a temp dir, output is capped, only the result lands
-   in context.
+2. **Generic Bash output mutation (v0.3.0, Claude Code v2.1.121+).** A
+   PostToolUse / Bash hook filters output from raw shell commands
+   (`grep`, `find`, `python -c`, custom scripts) the agent runs but
+   flart doesn't have a dedicated filter for. Decision tree: ≤30 lines
+   → passthrough, 31–200 → head 20 + tail 5, > 200 → head 15 + tail 5 +
+   error grep, exit ≠ 0 → framed error with stderr + stdout tail. Full
+   raw output teed for recovery (`cat` of the tee log auto-passes
+   through, or use the `FLART_FULL_OUTPUT=1` env prefix).
 
-A SQLite-backed savings tracker records every invocation so you can run
-`flart savings` and see exactly how much agent context the tool has saved
-you across all projects.
+3. **Sandbox executor.** Instead of asking the agent to read 30 files
+   to answer "how many providers does this app have?", let it write a
+   one-liner: `flart exec dart 'print(Directory("lib").listSync(...))'`.
+   The script runs in a temp dir, output is capped, only the result
+   lands in context.
+
+A SQLite-backed savings tracker records every invocation (filter,
+executor, bash_post) so you can run `flart savings` and see exactly how
+much agent context the tool has saved you, scoped to the current
+project by default. A separate `subagent_activations` table counts
+Task-tool sub-agent spawns that received flart's routing reminder.
 
 ---
 
 ## Install
-
-> The install script is part of the v0.1.0 release artefact; until the
-> first GitHub release is published, use the from-source path below.
 
 ### From a release (preferred)
 
@@ -65,8 +74,14 @@ curl -fsSL https://raw.githubusercontent.com/MelihCevhertas/flart/main/install.s
 Detects your OS/arch (macOS arm64/x64, Linux x64), downloads the matching
 binary into `~/.local/bin/flart` (override with `FLART_INSTALL_DIR`), and
 reminds you to add `~/.local/bin` to your `$PATH` if it isn't already
-there. Pin a specific release with `FLART_VERSION=v0.1.0`. The hook is
+there. Pin a specific release with `FLART_VERSION=v0.3.0`. The hook is
 **not** installed automatically — run `flart init` once when you're ready.
+
+> The PostToolUse / Bash output mutation requires **Claude Code
+> v2.1.121+** (`updatedToolOutput` was introduced there). The
+> PreToolUse rewrite and Task-hook context injection work on any Claude
+> Code build; `flart init` detects the installed version and skips the
+> PostToolUse entry on older releases with an explanatory note.
 
 > **macOS Gatekeeper:** the installer clears the `com.apple.quarantine`
 > attribute proactively, but if you ever see *"flart cannot be opened
@@ -94,8 +109,10 @@ You also need `jq` on `$PATH` for the Claude Code hook itself
 ```bash
 # 1. Verify install.
 which flart
-flart version          # flart 0.1.0 (commit <sha>)
-flart init --check     # ✓/✗ table: PATH, jq, settings.json, hook script
+flart version          # flart 0.3.0 (commit <sha>)
+flart init --check     # ✓/✗ table: PATH, jq, Claude Code version,
+                       # settings.json, three hook scripts (Bash PreToolUse,
+                       # Task PreToolUse, Bash PostToolUse if supported)
 
 # 2. Install the Claude Code hook + project routing.
 cd ~/your/flutter/project
@@ -104,7 +121,8 @@ flart init             # prompts before touching ~/.claude/settings.json
 
 # 3. Try it.
 flart analyze
-flart savings          # ~91% saved so far
+flart savings          # current project's savings since the DB was created
+flart savings --all    # cumulative across every project flart has ever seen
 ```
 
 Hook installs are idempotent — re-running `flart init` updates the entry
@@ -130,11 +148,14 @@ flart savings --details      # most recent invocations with raw/filtered bytes
 flart savings --json         # machine-readable; pipe through jq for custom views
 ```
 
-> **v0.2.0 default changed.** `flart savings` (no flags) now scopes to
+> **v0.3.0 default changed.** `flart savings` (no flags) now scopes to
 > the current project's `pubspec.yaml` root instead of the all-projects
 > total — most users wanted the local number first. Pass `--all` to get
 > the old cumulative report. Running outside any Flutter/Dart project
-> falls back to `--all` automatically with a note.
+> falls back to `--all` automatically with a note. The boolean
+> `--project` flag is deprecated and will be removed in v0.4.0; use the
+> default scope (current project) or `--project-path=<path>` for an
+> explicit override.
 
 Empty database? Run a few flart commands first (e.g. `flart analyze` in a
 project with a `pubspec.yaml`).
@@ -163,8 +184,8 @@ project with a `pubspec.yaml`).
 | `flart err <command...>`               | any                                  | Generic wrapper that surfaces only error markers + stack frames.        |
 | `flart test-wrap <command...>`         | any                                  | Generic test summary extractor (passed/failed counts).                  |
 | `flart rewrite "<cmd>"`                | —                                    | Pure function: what the PreToolUse hook would substitute.               |
-| `flart savings [flags...]`             | —                                    | Reports: default, `--by-command`, `--by-module`, `--top`, `--details`, `--json`, `--csv`, `--graph`, `--reset`. |
-| `flart init [flags...]`                | —                                    | Install/inspect the Claude Code hook + CLAUDE.md routing block.         |
+| `flart savings [flags...]`             | —                                    | Default = current project. Flags: `--all`, `--project-path=<path>`, `--by-command`, `--by-module`, `--top`, `--details`, `--since`, `--until`, `--json`, `--csv`, `--graph`, `--reset`. |
+| `flart init [flags...]`                | —                                    | Install/inspect the three Claude Code hooks + CLAUDE.md routing block. PostToolUse / Bash entry is gated on Claude Code v2.1.121+. |
 | `flart version`                        | —                                    | Semver + commit SHA.                                                    |
 
 ---
@@ -193,12 +214,19 @@ reduction, ~21,807 tokens saved.**
 exercised too: a `flart build` against the project's NDK-missing config
 surfaced the actual error line while dropping Gradle daemon spam.
 
+> The 98.3% figure is from v0.1.0 — pre-PostToolUse/Bash. v0.3.0 adds a
+> second compression surface (raw shell commands the agent runs:
+> `grep`, `find`, `python -c`, custom scripts) that wasn't part of the
+> original measurement. A fresh agent-session measurement covering the
+> v0.3.0 surface area is on the v0.4.0 backlog.
+
 Reproduce on your own project:
 
 ```bash
-flart init                  # install the Claude Code hook
+flart init                  # install the three Claude Code hooks
 # ...have a normal coding session with the agent...
 flart savings --by-command  # see your numbers
+flart savings --by-module   # filter vs bash_post vs executor breakdown
 ```
 
 ---
@@ -402,8 +430,14 @@ PostToolUse install without erroring; upgrade Claude Code and re-run
 
 ## Limitations
 
+- **Claude Code < v2.1.121 misses output mutation.** PreToolUse / Bash
+  (command rewrite) and PreToolUse / Task (sub-agent context) work on
+  every Claude Code build, but the PostToolUse / Bash output filter
+  needs `hookSpecificOutput.updatedToolOutput`, which lands in v2.1.121.
+  `flart init` detects the version and skips the PostToolUse entry on
+  older releases — no half-install state, just a missing feature.
 - **Windows untested.** Code paths are mostly portable, but no CI run
-  on Windows yet. v0.2.0.
+  on Windows yet. On a future-release backlog; no firm version target.
 - **macOS Intel x64 not in binary release.** GitHub Actions Intel Mac
   runners (`macos-13`) sit in queue for 50+ minutes, which is incompatible
   with the rapid release cadence. Apple Silicon is the install target;
@@ -417,26 +451,23 @@ PostToolUse install without erroring; upgrade Claude Code and re-run
   sudo mv flart /usr/local/bin/
   ```
 
-  Tracked for v0.2.0 alongside Windows.
 - **`fvm` not supported.** `fvm flutter analyze` flows through unchanged.
   Workaround: alias `flutter` and `dart` to your fvm shims, or wait for
-  v1.1's wrapper-aware rewrite.
+  the v1.1 wrapper-aware rewrite.
 - **`flutter run` not wrapped.** Interactive hot-reload mode is hard to
   filter without changing semantics. v1.1.
 - **iOS `ipa` builds not measured.** The filter is generic enough to
-  handle Xcode output but Mac-with-signing test environment is harder to
-  reproduce on CI.
+  handle Xcode output but a Mac-with-signing test environment is harder
+  to reproduce on CI.
 - **Token counts are estimates.** ±15% relative to Anthropic's actual
   tokenizer. Byte counts are exact.
 - **Hook auto-allows mapped commands.** The Claude Code permission
   prompt is bypassed for the subset `flart rewrite` matches. Everything
   else (git, npm, gh, …) still goes through the normal permission flow.
-- **Tool output mutation is read-only.** Claude Code's `PostToolUse`
-  hook can add feedback but cannot replace the tool output the agent
-  sees. flart only intercepts at the `PreToolUse` boundary (rewriting
-  the command before it runs, or injecting sub-agent context before the
-  spawn). We will not silently truncate Read/Grep output (see
-  [Frequently misunderstood](#frequently-misunderstood)).
+- **Output mutation only covers Bash.** Read, Grep, Edit, and Write are
+  deliberately not intercepted — see
+  [What flart deliberately doesn't intercept](#what-flart-deliberately-doesnt-intercept)
+  for the reasoning.
 
 ---
 
