@@ -18,12 +18,15 @@ per-command breakdown. Per-invocation numbers across other projects sit
 in [Typical savings](#typical-savings); your real-session savings depend
 on command mix and hook adoption.
 
-> Status: **v0.2.0 — sub-agent context + CWD-scoped savings.** macOS
+> Status: **v0.1.0 released; v0.3.0 in development on `main`.** macOS
 > (Apple Silicon) + Linux (x64). Single binary, no runtime dependencies
 > beyond Dart/Flutter and `jq` (for the Bash hook). Intel Mac, Windows,
 > and `fvm` support still deferred — Intel Mac users can build from
-> source (see [Limitations](#limitations)). What changed in v0.2.0:
-> [CHANGELOG](./CHANGELOG.md).
+> source (see [Limitations](#limitations)). v0.3.0 will bundle the
+> sub-agent context injection, CWD-scoped savings, and Bash output
+> mutation (Claude Code v2.1.121+) into one release rather than ship
+> them piecemeal; the v0.2.0 tag that briefly existed was rolled back
+> on 2026-05-19 to consolidate.
 
 ---
 

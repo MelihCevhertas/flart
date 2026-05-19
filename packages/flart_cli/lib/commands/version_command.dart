@@ -4,16 +4,16 @@ import 'package:args/command_runner.dart';
 ///
 /// ```
 /// dart compile exe ... \
-///   --define=FLART_VERSION=0.2.0 \
+///   --define=FLART_VERSION=0.3.0 \
 ///   --define=GIT_SHA=$(git rev-parse --short HEAD) \
 ///   --define=BUILD_DATE=$(date -u +%Y-%m-%d)
 /// ```
 ///
-/// A dev build (no `--define` flags) shows just `flart 0.2.0-dev`; a CI
+/// A dev build (no `--define` flags) shows just `flart 0.3.0-dev`; a CI
 /// release build adds the commit/date trailer. The binary never shells out
 /// to `git` at runtime — values are baked into the executable.
 const String flartVersion =
-    String.fromEnvironment('FLART_VERSION', defaultValue: '0.2.0-dev');
+    String.fromEnvironment('FLART_VERSION', defaultValue: '0.3.0-dev');
 const String _gitSha =
     String.fromEnvironment('GIT_SHA', defaultValue: 'unknown');
 const String _buildDate =

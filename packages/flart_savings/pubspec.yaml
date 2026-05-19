@@ -1,7 +1,7 @@
 name: flart_savings
 description: Savings reporter for flart — aggregates invocation data and renders text/JSON/CSV/graph reports.
 publish_to: none
-version: 0.2.0-dev
+version: 0.3.0-dev
 
 environment:
   sdk: ^3.5.0

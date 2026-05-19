@@ -24,7 +24,7 @@ void main() {
       final out = StringBuffer();
       final code = await _captureRun(out, () => runFlart(['version']));
       expect(code, 0);
-      expect(out.toString().trim(), 'flart 0.2.0-dev');
+      expect(out.toString().trim(), 'flart 0.3.0-dev');
     });
 
     test('empty args print top-level help including subcommands', () async {
