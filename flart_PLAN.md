@@ -1,12 +1,16 @@
 # flart — Flutter/Dart Token Optimization Tool
 
-**Belge sürümü:** 1.9
+**Belge sürümü:** 1.11
 **Tarih:** 18 Mayıs 2026
 **Hedef geliştirme ortamı:** Claude Code
 **Tahmini geliştirme süresi:** 18–25 gün full-time / 5–7 hafta part-time
 **License:** MIT (tek lisans, tüm paketler dahil)
 
 ## Değişiklik Geçmişi
+
+**v1.11 (19 Mayıs 2026):** Post-push CI cleanup + Windows desteğinin v0.2.0'a ertelenmesi. (a) **macOS CI test cleanup fix:** `packages/flart_cli/test/analyze_command_test.dart` son test'i (`DB filtered_bytes == captured stdout bytes`) sonrası `Directory.current` silinmiş `tmpDir`'de kalıyordu — macOS `getcwd()` katı, `PathNotFoundException` ile crash; Linux toleranslı, ubuntu-latest geçiyordu. `setUp`'ta `originalCwd` capture edilip `addTearDown` tek callback içinde **önce restore, sonra delete** sırasıyla yürütülecek şekilde refactor edildi. Grep ile workspace'te `Directory.current` mutate eden başka test olmadığı doğrulandı; `withTempCwd` helper abstraction'ı reddedildi (tek caller için premature). (b) **Windows desteği v0.2.0'a ertelendi (Section 1.3 + 14.5):** Launch hızı önceliği + Mac-only geliştirme ortamı gerekçesiyle v0.1.0'da Windows hedeflenmiyor. Gerçek kapsam: hook protocol (bash/PS veya direkt binary), path handling (XDG vs APPDATA), CI matrix (windows-latest), `install.ps1`, fixture line ending normalizasyonu. Tahmini iş 2 hafta full-time. README "Limitations" mevcut Windows notu yeterli. v0.1.0 sonrası gerçek kullanıcı verisi gelince yeniden değerlendirilecek.
+
+**v1.10 (18 Mayıs 2026):** Faz 7 Çekap 3 (final smoke + handoff + RC pattern). (a) **Release Candidate pattern (Section 12.5 yeni):** v0.1.0 doğrudan tag'lenmiyor — önce `v0.1.0-rc1` tag'lenip release.yml ile binaries üretilir, gerçek agent-session ölçümü `-rc1` artefactları üzerinde yapılır, sonuç iyiyse `v0.1.0` tag'i atılır; kötüyse `-rc2`'ye iterate. Motivasyon: utanç verici release önleme. Bu pattern future minor/major release'ler için de geçerli. (b) **Baseline commit + version stamp doğrulaması:** Local `git init` + remote `MelihCevhertas/flart` + initial commit `599c666 — flart v0.1.0 (Faz 1-7 complete)` (170 files). Local rc1 binary build (`dart compile exe ... --define=FLART_VERSION=0.1.0-rc1 --define=GIT_SHA=599c666 --define=BUILD_DATE=2026-05-18`) → 7.0 MB, `flart 0.1.0-rc1 (commit 599c666, built 2026-05-18)` ✓. (c) **install.sh local smoke:** Dry-run 404 (release henüz yok — beklenen davranış, error mesajı actionable). OS/arch detect + URL composition + jq prereq path + macOS quarantine clear branch'leri kod-okuma + dummy çağrılarla doğrulandı. Gerçek install testi user tarafında rc1 release.yml çalıştıktan sonra Step 3'te yapılır. (d) **DEPLOYMENT.md (handoff doc):** Step 1-5 (push → tag rc1 → install.sh real test → Wonderous 30 dk agent-session measurement → promote v0.1.0 veya iterate rc2). README/CHANGELOG'a measurement satırını rc1 ölçümü tamamlandıktan sonra eklemek üzere placeholder. Rollback/iteration guide dahil. (e) **Faz 6 son madde + Faz 7 son madde — user manual milestone:** Section 9'da "Integration test: gerçek Claude Code session'da hook tetiklensin" maddesi unchecked kalır; "v0.1.0 tag" maddesi de unchecked kalır. İkisi de **user-side manual milestone** (Çekap 3 ana iş tamamlandıktan sonra). Plan değişikliği değil — `flart` codebase'i ve release pipeline'ı Çekap 3 ile shippable; agent ölçümü ve final tag user'a devredildi.
 
 **v1.9 (18 Mayıs 2026):** Faz 7 Çekap 2 (install.sh + CI + version stamping). (a) **Build-time version metadata (Section 8.1 / version_command revize):** `flart version` artık `String.fromEnvironment` ile `FLART_VERSION` / `GIT_SHA` / `BUILD_DATE` okur. Dev build (`dart compile exe` flagsiz) → `flart 0.1.0-dev`. Release build (`--define=FLART_VERSION=0.1.0 --define=GIT_SHA=<sha> --define=BUILD_DATE=YYYY-MM-DD`) → `flart 0.1.0 (commit <sha>, built YYYY-MM-DD)`. Binary self-contained, runtime'da git çağrısı yok. (b) **install.sh (Plan Section 12.3 dolduruldu):** OS/arch detect (macOS arm64/x64, Linux x64), `FLART_VERSION` + `FLART_INSTALL_DIR` env override, idempotent overwrite, macOS quarantine attribute pro-aktif silinir, jq prereq warning OS-aware, PATH check shell-aware (zsh/bash/fish), "next steps" mesajı. (c) **CI workflows (.github/workflows/):** `test.yml` push/PR'da matrix `[macos-latest, ubuntu-latest]` × `setup-dart@v1 sdk: 3.11.5` + `tools/test_all.sh`. `release.yml` tag-triggered `v*` matrix build `[macos-arm64, macos-x64, linux-x64]`, version stamp inject, smoke `./binary version + help`, `softprops/action-gh-release@v2` ile draft release oluşturur. (d) **README polish:** 91% caveat ("Real-world session savings depend on command mix and hook adoption"), macOS quarantine workaround, "Verifying savings" section (Quick start sonrası), install.sh `FLART_VERSION`/`FLART_INSTALL_DIR` env override doc'u.
 
@@ -63,6 +67,7 @@ Bu sürümde **bilerek yapmadığımız** şeyler (gelecek versiyonlar için not
 - Telemetry / network çağrısı — tüm veri lokal kalır.
 - Multi-agent desteği (Cursor, Gemini CLI, Codex) — sadece Claude Code hedefli.
 - Interaktif komutlar (`flutter run` hot reload modu) — filter etmesi karmaşık, v1.1'e ertelendi.
+- Windows desteği — launch hızı + Mac-only geliştirme ortamı gerekçesiyle v0.2.0 yol haritasına ertelendi (bkz. Section 14.5). v0.1.0 macOS (arm64/x64) ve Linux (x64) hedefler.
 
 ### 1.4 İsim ve Marka
 
@@ -1471,19 +1476,22 @@ Tests:
   - [x] `flart rewrite "cd /tmp && flutter test"` → "cd /tmp && flart test"
   - [x] `flart rewrite "flutter analyze | tee out.txt"` → passthrough
   - [x] `flart rewrite "git status"` → passthrough (kapsam dışı)
-- [ ] Integration test: gerçek Claude Code session'da hook tetiklensin **— Faz 7 son adımına ertelendi (Plan v1.8 e)**
+- [ ] Integration test: gerçek Claude Code session'da hook tetiklensin **— Faz 7 user-side manual milestone'una ertelendi (Plan v1.8 e + v1.10 a/e); DEPLOYMENT.md Step 4'te yürütülür**
 
 ### Faz 7 — Polish & Release (Gün 21-25)
 
-- [ ] README — kurulum, hızlı başlangıç, tüm komutların listesi, gerçek tasarruf rakamları
-- [ ] CHANGELOG.md ilk entry
-- [ ] CI: GitHub Actions
-  - [ ] Test workflow (macOS + Linux)
-  - [ ] Release workflow (`dart compile exe` + GitHub release)
-- [ ] `flart --version` çıktısı düzgün (semver + git sha)
-- [ ] Doctor mode (`flart init --check`) tüm checks yeşil
-- [ ] Gerçek bir Flutter projesinde 1 saat boyunca kullan, bug listesi çıkar, düzelt
-- [ ] v0.1.0 tag
+- [x] README — kurulum, hızlı başlangıç, tüm komutların listesi, gerçek tasarruf rakamları (Çekap 1 — 91% caveat + macOS quarantine workaround + Verifying savings; Çekap 2'de install.sh env override doc'u eklendi)
+- [x] CHANGELOG.md ilk entry (Çekap 1 — v0.1.0 per-package Added sections, 109 satır)
+- [x] CI: GitHub Actions
+  - [x] Test workflow (macOS + Linux) — `.github/workflows/test.yml`, matrix `[macos-latest, ubuntu-latest]` × Dart 3.11.5 + `tools/test_all.sh` (Çekap 2)
+  - [x] Release workflow (`dart compile exe` + GitHub release) — `.github/workflows/release.yml`, tag-triggered `v*` matrix `[macos-arm64, macos-x64, linux-x64]`, version stamp inject, draft release (Çekap 2)
+- [x] `flart --version` çıktısı düzgün (semver + git sha) — `String.fromEnvironment` ile build-time stamp; local rc1 doğrulama `flart 0.1.0-rc1 (commit 599c666, built 2026-05-18)` (Çekap 2+3)
+- [x] Doctor mode (`flart init --check`) tüm checks yeşil — exit 0 (Çekap 3 final smoke)
+- [x] `install.sh` script (Section 12.3 dolduruldu) — OS/arch detect, env override, macOS quarantine, jq prereq, PATH check; dry-run smoke (Çekap 2+3)
+- [x] Baseline commit + local rc1 binary build (`599c666`, 7.0 MB, smoke `version + help` ✓) (Çekap 3)
+- [x] DEPLOYMENT.md handoff doc (Step 1-5: push → tag rc1 → install.sh real test → Wonderous agent-session measurement → promote v0.1.0 veya rc2) (Çekap 3)
+- [ ] **User-side manual milestone (post-Çekap 3, DEPLOYMENT.md):** Gerçek Claude Code session'da hook tetiklensin — Wonderous 30 dk task, `flart savings` rakamları Plan F bandında (40-65% session)
+- [ ] **User-side manual milestone (post-Çekap 3, DEPLOYMENT.md):** v0.1.0 tag (rc1 ölçümü iyiyse promote, kötüyse rc2 iterate)
 
 ---
 
@@ -1686,6 +1694,22 @@ flart init
 - Tipik tasarruf rakamları (kendi ölçümlerin)
 - Limitasyonlar bölümü (dürüst: ne yapamaz)
 
+### 12.5 Release Candidate Pattern (Plan v1.10)
+
+v0.1.0 ve sonraki tüm minor/major release'ler bu sıralamayla çıkar — tag doğrudan production'a atılmaz, önce RC artefactları üzerinde son doğrulama yapılır:
+
+1. **`vX.Y.Z-rcN` tag'le.** `release.yml` matrix build çalıştırır, draft release oluşturur (3 binary attached).
+2. **install.sh ile gerçek release'i test et.** `FLART_VERSION=vX.Y.Z-rcN` env ile fresh shell'de install + smoke.
+3. **Agent-session measurement.** Fresh Claude Code session, mid-size Flutter projesi (Wonderous), 30 dk task. `flart savings` rakamları Plan F bandında olmalı.
+4. **Karar:**
+   - Rakamlar iyi → README/CHANGELOG'a measurement satırı, polish commit, `vX.Y.Z` tag'le. `release.yml` ikinci kez koşar, draft → publish.
+   - Bug bulundu → patch + `vX.Y.Z-rc(N+1)` tag, baştan.
+5. **Rollback:** Sadece **draft** release'ler için `git tag -d` + `git push origin :refs/tags/...` + UI'dan draft sil. **Published release'lere asla rollback yok** — `vX.Y.(Z+1)` patch release ile düzelt (artefactlar cache'lenmiş olabilir).
+
+**Motivasyon:** Faz 6'nın son adımı (gerçek agent ölçümü) Plan v1.8'de Faz 7 sonuna ertelenmişti. Plan v1.10'da bu adım RC pattern'inin doğal bir parçası haline geldi — ölçüm `-rc1` üzerinde yapılır, `v0.1.0` final tag'i ancak ölçüm Plan F bandında olduğunda atılır. v0.1.0 utanç verici çıkmaz.
+
+**Future tag'ler için kısa form:** Section 9'da phase checklist'in son iki maddesi her release'de tekrar eder — "user-side manual milestone: agent-session measurement on rcN" + "user-side manual milestone: promote to final tag".
+
 ---
 
 ## 13. Riskler ve Bilinen Sorunlar
@@ -1797,6 +1821,10 @@ Faz 3 audit'inden ve Faz 4 implementasyonundan kalan iyileştirme adayları. v1.
 - Pure-Dart fallback diğer komutlar için (build/clean Flutter-only kalıyor; gerek yok)
 - Fix filter `-v` ile per-file detail expand (şu an raw `dart fix --dry-run` öneriliyor)
 - iOS ipa build fixture (Mac dev env'i lab'a entegre edilirse)
+
+**v0.2.0'a ertelendi (Plan v1.11):**
+
+- **Windows desteği** — hook protocol (bash/PS veya direkt binary çağrısı, mevcut `rewrite.sh` Windows'ta çalışmaz), path handling (`XDG_CONFIG_HOME`/`XDG_DATA_HOME` yerine `%APPDATA%`/`%LOCALAPPDATA%`), CI matrix'e `windows-latest` eklenmesi (test fixture line ending normalizasyonu dahil), `install.ps1` (PowerShell muadili), `release.yml` Windows binary build (mevcut `flart-windows-x64.exe` placeholder Section 12.2'de duruyor ama henüz pipeline'a bağlı değil). Tahmini iş 2 hafta full-time. v0.1.0 launch sonrası gerçek kullanıcı talebi geldiğinde önceliklendirilecek.
 
 ---
 

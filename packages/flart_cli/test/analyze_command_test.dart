@@ -67,8 +67,14 @@ void main() {
     late Directory project;
 
     setUp(() {
+      final originalCwd = Directory.current;
       tmp = Directory.systemTemp.createTempSync('flart_analyze_cli_');
-      addTearDown(() => tmp.deleteSync(recursive: true));
+      addTearDown(() {
+        // Restore CWD before deleting tmp: macOS getcwd() crashes if the
+        // process is left sitting in a removed directory.
+        Directory.current = originalCwd;
+        tmp.deleteSync(recursive: true);
+      });
       project = Directory(p.join(tmp.path, 'project'))..createSync();
       Directory(p.join(project.path, 'lib')).createSync();
       File(p.join(project.path, 'pubspec.yaml')).writeAsStringSync('''
