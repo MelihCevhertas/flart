@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:flart_cli/commands/init_command.dart';
 import 'package:flart_core/flart_core.dart';
+import 'package:flart_hooks/flart_hooks.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -42,8 +43,10 @@ Future<({int code, String stdout, String stderr})> _runInit(
   required String settingsPath,
   required String hookScriptPath,
   required String taskHookScriptPath,
+  required String bashPostHookScriptPath,
   required String claudeMdPath,
   Future<String?> Function(String)? whichExe,
+  Future<ClaudeCodeVersion?> Function()? detectVersion,
   String? stdinReply,
 }) async {
   final out = _CapturingSink();
@@ -59,8 +62,13 @@ Future<({int code, String stdout, String stderr})> _runInit(
     settingsPathOverride: settingsPath,
     hookScriptPathOverride: hookScriptPath,
     taskHookScriptPathOverride: taskHookScriptPath,
+    bashPostHookScriptPathOverride: bashPostHookScriptPath,
     claudeMdPathOverride: claudeMdPath,
     whichExeOverride: whichExe ?? (exe) async => '/fake/$exe',
+    // Default to a modern Claude Code so tests exercise the full hook set.
+    // Individual tests override to simulate older / missing Claude.
+    detectVersionOverride: detectVersion ??
+        () async => const ClaudeCodeVersion(2, 1, 144),
   );
   final runner = CommandRunner<int>('flart-test', 'init test runner')
     ..addCommand(cmd);
@@ -77,6 +85,7 @@ void main() {
   late String settingsPath;
   late String hookScriptPath;
   late String taskHookScriptPath;
+  late String bashPostHookScriptPath;
   late String claudeMdPath;
 
   setUp(() {
@@ -87,6 +96,8 @@ void main() {
         p.join(tmp.path, '.config', 'flart', 'hooks', 'rewrite.sh');
     taskHookScriptPath =
         p.join(tmp.path, '.config', 'flart', 'hooks', 'task_hook.sh');
+    bashPostHookScriptPath =
+        p.join(tmp.path, '.config', 'flart', 'hooks', 'bash_post_hook.sh');
     claudeMdPath = p.join(tmp.path, 'project', 'CLAUDE.md');
   });
 
@@ -97,18 +108,24 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
       expect(File(hookScriptPath).existsSync(), isTrue);
       expect(File(taskHookScriptPath).existsSync(), isTrue);
+      expect(File(bashPostHookScriptPath).existsSync(), isTrue,
+          reason: 'modern Claude → PostToolUse/Bash script written');
       expect(File(settingsPath).existsSync(), isTrue);
       expect(File(claudeMdPath).existsSync(), isTrue);
       final settings = jsonDecode(File(settingsPath).readAsStringSync()) as Map;
-      final hooks = (settings['hooks'] as Map)['PreToolUse'] as List;
-      // v0.2.0: PreToolUse now has both Bash (rewrite.sh) and Task (task_hook.sh).
-      expect(hooks.length, 2);
-      expect(hooks.map((e) => (e as Map)['matcher']), containsAll(['Bash', 'Task']));
+      final hooksRoot = settings['hooks'] as Map;
+      final pre = hooksRoot['PreToolUse'] as List;
+      expect(pre.length, 2);
+      expect(pre.map((e) => (e as Map)['matcher']), containsAll(['Bash', 'Task']));
+      final post = hooksRoot['PostToolUse'] as List;
+      expect(post.length, 1);
+      expect((post.first as Map)['matcher'], 'Bash');
       final claudeContent = File(claudeMdPath).readAsStringSync();
       expect(claudeContent, contains('flart routing'));
     });
@@ -119,6 +136,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
         stdinReply: 'n',
       );
@@ -134,6 +152,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
         stdinReply: 'y',
       );
@@ -149,6 +168,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
@@ -163,6 +183,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
@@ -179,6 +200,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
@@ -191,6 +213,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       final r = await _runInit(
@@ -198,6 +221,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
@@ -213,6 +237,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       final r = await _runInit(
@@ -220,6 +245,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
         whichExe: (exe) async => exe == 'jq' ? null : '/fake/$exe',
       );
@@ -234,6 +260,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       final r = await _runInit(
@@ -241,6 +268,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
@@ -255,6 +283,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       // Plant a fake savings.db in the same parent — must remain untouched.
@@ -266,6 +295,7 @@ void main() {
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);

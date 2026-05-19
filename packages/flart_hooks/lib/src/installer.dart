@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flart_core/flart_core.dart';
 import 'package:path/path.dart' as p;
 
+import 'claude_version.dart';
+import 'templates/bash_post_hook_sh.dart';
 import 'templates/claude_md_block.dart';
 import 'templates/rewrite_sh.dart';
 import 'templates/task_hook_sh.dart';
@@ -49,9 +51,14 @@ String defaultHookScriptPath(String configHome) =>
     p.join(configHome, 'flart', 'hooks', 'rewrite.sh');
 
 /// Convenience: `<configHome>/flart/hooks/task_hook.sh` — PreToolUse/Task
-/// companion to `rewrite.sh`. Added in v0.2.0.
+/// companion to `rewrite.sh`. Added in v0.2.0 (released as part of v0.3.0).
 String defaultTaskHookScriptPath(String configHome) =>
     p.join(configHome, 'flart', 'hooks', 'task_hook.sh');
+
+/// Convenience: `<configHome>/flart/hooks/bash_post_hook.sh` —
+/// PostToolUse/Bash companion. Added in v0.3.0 (requires Claude Code v2.1.121+).
+String defaultBashPostHookScriptPath(String configHome) =>
+    p.join(configHome, 'flart', 'hooks', 'bash_post_hook.sh');
 
 /// Default Claude Code settings path: `~/.claude/settings.json`.
 /// Test injection: pass an explicit value to [HookInstaller].
@@ -82,11 +89,16 @@ void atomicWriteString(String path, String content,
 }
 
 /// Reads/writes the Claude Code `settings.json` to install or remove the
-/// flart PreToolUse hooks. As of v0.2.0 manages two entries:
-///   - matcher `Bash` → rewrite.sh (command auto-rewrite)
-///   - matcher `Task` → task_hook.sh (sub-agent context injection)
-/// Idempotent: re-running `install` updates command paths; `uninstall` is a
-/// no-op when not installed.
+/// flart hooks. As of v0.3.0 manages up to three entries:
+///   - PreToolUse  / matcher `Bash` → rewrite.sh        (command auto-rewrite)
+///   - PreToolUse  / matcher `Task` → task_hook.sh      (sub-agent context)
+///   - PostToolUse / matcher `Bash` → bash_post_hook.sh (output mutation)
+///
+/// The PostToolUse entry requires Claude Code v2.1.121+ for
+/// `hookSpecificOutput.updatedToolOutput`. When [claudeVersion] is older or
+/// unknown, that entry is *skipped on install* and *still removed on
+/// uninstall* (cleanly purges stale entries from older flart installs).
+/// `installAll` reports the skip in its message list so the CLI surfaces it.
 ///
 /// **Savings DB is never touched by this class.** Uninstall removes only the
 /// Claude Code integration (settings.json entries + hook scripts). Users who
@@ -95,28 +107,52 @@ class HookInstaller {
   final String settingsPath;
   final String hookScriptPath;
   final String taskHookScriptPath;
+  final String bashPostHookScriptPath;
+
+  /// Detected Claude Code version. `null` means we couldn't probe (binary
+  /// missing / parse failure); we conservatively skip PostToolUse in that
+  /// case and let the user re-run after fixing PATH.
+  final ClaudeCodeVersion? claudeVersion;
 
   const HookInstaller({
     required this.settingsPath,
     required this.hookScriptPath,
     required this.taskHookScriptPath,
+    required this.bashPostHookScriptPath,
+    this.claudeVersion,
   });
 
-  /// Writes both hook scripts + updates settings.json (atomic). Returns a
-  /// short description of what changed (suitable for printing).
+  bool get _postToolUseEnabled =>
+      claudeVersion != null && claudeVersion!.supportsOutputMutation;
+
+  /// Writes hook scripts + updates settings.json (atomic). The PostToolUse
+  /// script + entry are only written when [claudeVersion] is at or above
+  /// v2.1.121; older versions get an explanatory note in the returned list.
   List<String> installAll() {
     final messages = <String>[];
     messages.add(_writeScript(hookScriptPath, hookScriptTemplate));
     messages.add(_writeScript(taskHookScriptPath, taskHookScriptTemplate));
+    if (_postToolUseEnabled) {
+      messages.add(_writeScript(bashPostHookScriptPath, bashPostHookScriptTemplate));
+    } else {
+      messages.add(
+        'PostToolUse/Bash hook skipped: requires Claude Code '
+        '${ClaudeCodeVersion.outputMutationMinimum}+, detected '
+        '${claudeVersion?.toString() ?? 'unknown (claude binary not on PATH?)'}. '
+        'Upgrade Claude Code and rerun `flart init` to enable output mutation.',
+      );
+    }
     messages.add(_editSettings(install: true));
     return messages;
   }
 
-  /// Removes both flart entries from settings.json AND deletes the hook
-  /// script files (the inverse of installAll). Savings DB is **not** touched.
+  /// Removes every flart entry from settings.json AND deletes the hook
+  /// script files (the inverse of installAll). Removes the PostToolUse
+  /// entry even when [claudeVersion] is below the threshold — old installs
+  /// may still have it on disk from a prior upgrade.
   List<String> uninstallAll() {
     final messages = <String>[_editSettings(install: false)];
-    for (final path in [hookScriptPath, taskHookScriptPath]) {
+    for (final path in [hookScriptPath, taskHookScriptPath, bashPostHookScriptPath]) {
       final script = File(path);
       if (script.existsSync()) {
         script.deleteSync();
@@ -131,25 +167,30 @@ class HookInstaller {
   /// Multi-line status summary for `flart init --show`.
   String describeState() {
     final buf = StringBuffer();
-    buf.writeln('Hook script (Bash): '
+    buf.writeln('Claude Code:        '
+        '${claudeVersion == null ? "✗ unknown (run `claude --version` to verify)" : "✓ $claudeVersion (output mutation ${_postToolUseEnabled ? "supported" : "requires ${ClaudeCodeVersion.outputMutationMinimum}+"})"}');
+    buf.writeln('Hook script (Bash, PreToolUse):  '
         '${File(hookScriptPath).existsSync() ? "✓ $hookScriptPath" : "✗ not installed"}');
-    buf.writeln('Hook script (Task): '
+    buf.writeln('Hook script (Task, PreToolUse):  '
         '${File(taskHookScriptPath).existsSync() ? "✓ $taskHookScriptPath" : "✗ not installed"}');
+    buf.writeln('Hook script (Bash, PostToolUse): '
+        '${File(bashPostHookScriptPath).existsSync() ? "✓ $bashPostHookScriptPath" : "✗ not installed"}');
     final settingsFile = File(settingsPath);
     if (!settingsFile.existsSync()) {
-      buf.write('settings.json:      ✗ $settingsPath not found');
+      buf.write('settings.json: ✗ $settingsPath not found');
       return buf.toString();
     }
     final settings = _loadSettings(settingsFile);
-    final bashEntry = _findFlartEntry(settings, matcher: 'Bash');
-    final taskEntry = _findFlartEntry(settings, matcher: 'Task');
-    buf.writeln(bashEntry == null
-        ? 'settings.json (Bash): ✗ no flart entry'
-        : 'settings.json (Bash): ✓ points to ${bashEntry['command']}');
-    buf.write(taskEntry == null
-        ? 'settings.json (Task): ✗ no flart entry'
-        : 'settings.json (Task): ✓ points to ${taskEntry['command']}');
-    return buf.toString();
+    for (final spec in _allSpecs(includePostToolUse: true)) {
+      final entry = _findFlartEntry(settings, spec: spec);
+      final label = '${spec.event}/${spec.matcher}';
+      buf.writeln(entry == null
+          ? 'settings.json ($label): ✗ no flart entry'
+          : 'settings.json ($label): ✓ points to ${entry['command']}');
+    }
+    // Trim trailing newline for cleaner CLI output.
+    final out = buf.toString();
+    return out.endsWith('\n') ? out.substring(0, out.length - 1) : out;
   }
 
   String _writeScript(String path, String content) {
@@ -170,36 +211,47 @@ class HookInstaller {
     final hooksRoot = (settings['hooks'] is Map<String, dynamic>)
         ? settings['hooks'] as Map<String, dynamic>
         : <String, dynamic>{};
-    final preToolUse =
-        (hooksRoot['PreToolUse'] as List?)?.cast<dynamic>() ?? <dynamic>[];
-    final mutable = preToolUse.toList();
 
     final actions = <String>[];
-    for (final pair in [
-      _MatcherSpec(matcher: 'Bash', scriptPath: hookScriptPath),
-      _MatcherSpec(matcher: 'Task', scriptPath: taskHookScriptPath),
-    ]) {
-      final existingIndex = mutable.indexWhere(
-          (e) => _isFlartEntryFor(e, matcher: pair.matcher));
+    // On install: write Pre+Task always, Post conditional on version.
+    // On uninstall: purge ALL three regardless of version (stale entries
+    // from a previously-upgraded flart install should not linger).
+    final specs = install
+        ? _allSpecs(includePostToolUse: _postToolUseEnabled)
+        : _allSpecs(includePostToolUse: true);
+
+    for (final spec in specs) {
+      final eventList =
+          (hooksRoot[spec.event] as List?)?.cast<dynamic>() ?? <dynamic>[];
+      final mutable = eventList.toList();
+      final existingIndex =
+          mutable.indexWhere((e) => _isFlartEntryFor(e, spec: spec));
       if (install) {
         final newEntry = {
-          'matcher': pair.matcher,
+          'matcher': spec.matcher,
           'hooks': [
-            {'type': 'command', 'command': pair.scriptPath},
+            {'type': 'command', 'command': spec.scriptPath},
           ],
         };
         if (existingIndex >= 0) {
           mutable[existingIndex] = newEntry;
-          actions.add('updated ${pair.matcher} hook');
+          actions.add('updated ${spec.event}/${spec.matcher}');
         } else {
           mutable.add(newEntry);
-          actions.add('installed ${pair.matcher} hook');
+          actions.add('installed ${spec.event}/${spec.matcher}');
         }
       } else {
         if (existingIndex >= 0) {
           mutable.removeAt(existingIndex);
-          actions.add('removed ${pair.matcher} hook');
+          actions.add('removed ${spec.event}/${spec.matcher}');
         }
+      }
+      // Drop the event key entirely if removing the last entry leaves it
+      // empty — keeps the settings.json tidy for users who only had flart.
+      if (mutable.isEmpty) {
+        hooksRoot.remove(spec.event);
+      } else {
+        hooksRoot[spec.event] = mutable;
       }
     }
 
@@ -207,28 +259,45 @@ class HookInstaller {
       return 'settings.json: no flart entries; nothing to do.';
     }
 
-    hooksRoot['PreToolUse'] = mutable;
-    settings['hooks'] = hooksRoot;
+    if (hooksRoot.isEmpty) {
+      settings.remove('hooks');
+    } else {
+      settings['hooks'] = hooksRoot;
+    }
 
     final pretty = const JsonEncoder.withIndent('  ').convert(settings);
     atomicWriteString(settingsPath, '$pretty\n');
     return 'settings.json: ${actions.join(', ')}.';
   }
 
-  /// True when [e] is a flart entry for the given matcher. Recognised by
-  /// the hooks[0].command ending in `/rewrite.sh` (Bash) or `/task_hook.sh`
-  /// (Task) — same convention the installer uses on write.
-  bool _isFlartEntryFor(dynamic e, {required String matcher}) {
+  List<_MatcherSpec> _allSpecs({required bool includePostToolUse}) {
+    final out = <_MatcherSpec>[
+      _MatcherSpec(
+          event: 'PreToolUse', matcher: 'Bash', scriptPath: hookScriptPath),
+      _MatcherSpec(
+          event: 'PreToolUse', matcher: 'Task', scriptPath: taskHookScriptPath),
+    ];
+    if (includePostToolUse) {
+      out.add(_MatcherSpec(
+          event: 'PostToolUse',
+          matcher: 'Bash',
+          scriptPath: bashPostHookScriptPath));
+    }
+    return out;
+  }
+
+  /// True when [e] is a flart entry for the given spec. Recognised by the
+  /// matcher AND a `hooks[0].command` whose tail matches the spec's script
+  /// filename — same convention the installer uses on write.
+  bool _isFlartEntryFor(dynamic e, {required _MatcherSpec spec}) {
     if (e is! Map) return false;
-    if (e['matcher'] != matcher) return false;
+    if (e['matcher'] != spec.matcher) return false;
     final hooks = e['hooks'];
     if (hooks is! List || hooks.isEmpty) return false;
     final h = hooks.first;
     if (h is! Map || h['command'] is! String) return false;
     final cmd = h['command'] as String;
-    if (matcher == 'Bash') return cmd.endsWith('/rewrite.sh');
-    if (matcher == 'Task') return cmd.endsWith('/task_hook.sh');
-    return false;
+    return cmd.endsWith('/${p.basename(spec.scriptPath)}');
   }
 
   Map<String, dynamic> _loadSettings(File file) {
@@ -243,14 +312,14 @@ class HookInstaller {
 
   Map<String, dynamic>? _findFlartEntry(
     Map<String, dynamic> settings, {
-    required String matcher,
+    required _MatcherSpec spec,
   }) {
     final hooks = settings['hooks'];
     if (hooks is! Map) return null;
-    final preToolUse = hooks['PreToolUse'];
-    if (preToolUse is! List) return null;
-    for (final e in preToolUse) {
-      if (_isFlartEntryFor(e, matcher: matcher)) {
+    final eventList = hooks[spec.event];
+    if (eventList is! List) return null;
+    for (final e in eventList) {
+      if (_isFlartEntryFor(e, spec: spec)) {
         return Map<String, dynamic>.from((e as Map)['hooks'][0] as Map);
       }
     }
@@ -259,9 +328,14 @@ class HookInstaller {
 }
 
 class _MatcherSpec {
+  final String event;
   final String matcher;
   final String scriptPath;
-  const _MatcherSpec({required this.matcher, required this.scriptPath});
+  const _MatcherSpec({
+    required this.event,
+    required this.matcher,
+    required this.scriptPath,
+  });
 }
 
 /// Installs/updates/removes the flart routing block in a project's CLAUDE.md.
@@ -341,14 +415,19 @@ class ProjectInstaller {
 /// the CLI can render a stable ✓/✗ table with actionable hints.
 class HookChecker {
   final Future<String?> Function(String exe) _whichExe;
+  final Future<ClaudeCodeVersion?> Function() _detectVersion;
 
-  HookChecker({Future<String?> Function(String exe)? whichExe})
-      : _whichExe = whichExe ?? _defaultWhich;
+  HookChecker({
+    Future<String?> Function(String exe)? whichExe,
+    Future<ClaudeCodeVersion?> Function()? detectVersion,
+  })  : _whichExe = whichExe ?? _defaultWhich,
+        _detectVersion = detectVersion ?? detectClaudeVersion;
 
   Future<List<CheckResult>> diagnose({
     required String settingsPath,
     required String hookScriptPath,
     String? taskHookScriptPath,
+    String? bashPostHookScriptPath,
     String? projectClaudeMdPath,
   }) async {
     final results = <CheckResult>[];
@@ -372,6 +451,22 @@ class HookChecker {
       hint: jqPath == null
           ? 'Install: brew install jq (macOS) or apt install jq (Linux).'
           : null,
+    ));
+
+    final version = await _detectVersion();
+    final minVer = ClaudeCodeVersion.outputMutationMinimum;
+    results.add(CheckResult(
+      label: 'Claude Code',
+      ok: version != null,
+      detail: version == null
+          ? 'version unknown (claude binary missing or unparseable)'
+          : '$version (output mutation ${version >= minVer ? "supported" : "requires $minVer+"})',
+      hint: version == null
+          ? 'Install Claude Code or add it to \$PATH so flart can probe `claude --version`.'
+          : (version < minVer
+              ? 'Upgrade Claude Code to $minVer+ to enable PostToolUse / Bash '
+                  'output mutation (other hooks still work on older versions).'
+              : null),
     ));
 
     final settingsFile = File(settingsPath);
@@ -403,7 +498,7 @@ class HookChecker {
 
     final scriptInstalled = File(hookScriptPath).existsSync();
     results.add(CheckResult(
-      label: 'Hook script (Bash)',
+      label: 'Hook script (Bash, PreToolUse)',
       ok: scriptInstalled,
       detail: scriptInstalled ? hookScriptPath : 'not installed',
       hint: scriptInstalled
@@ -414,12 +509,31 @@ class HookChecker {
     if (taskHookScriptPath != null) {
       final taskInstalled = File(taskHookScriptPath).existsSync();
       results.add(CheckResult(
-        label: 'Hook script (Task)',
+        label: 'Hook script (Task, PreToolUse)',
         ok: taskInstalled,
         detail: taskInstalled ? taskHookScriptPath : 'not installed',
         hint: taskInstalled
             ? null
             : 'Run `flart init --global` to write it.',
+      ));
+    }
+
+    if (bashPostHookScriptPath != null) {
+      final installed = File(bashPostHookScriptPath).existsSync();
+      // Only flag as an error when Claude Code supports it; otherwise the
+      // installer correctly skipped writing this script.
+      final shouldExist = version != null && version >= minVer;
+      results.add(CheckResult(
+        label: 'Hook script (Bash, PostToolUse)',
+        ok: shouldExist ? installed : true,
+        detail: installed
+            ? bashPostHookScriptPath
+            : (shouldExist
+                ? 'not installed'
+                : 'skipped (Claude Code < $minVer)'),
+        hint: shouldExist && !installed
+            ? 'Run `flart init --global` to write it.'
+            : null,
       ));
     }
 

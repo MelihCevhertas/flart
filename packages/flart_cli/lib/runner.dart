@@ -4,6 +4,7 @@ import 'package:args/command_runner.dart';
 import 'package:flart_core/flart_core.dart';
 
 import 'commands/analyze_command.dart';
+import 'commands/bash_post_hook_command.dart';
 import 'commands/build_command.dart';
 import 'commands/clean_command.dart';
 import 'commands/compile_command.dart';
@@ -137,6 +138,12 @@ CommandRunner<int> createRunner({
     stderrOverride: stderrOverride,
   ));
   runner.addCommand(TaskHookCommand(
+    envOverride: envOverride,
+    stdinOverride: stdinOverride,
+    stdoutOverride: stdoutOverride,
+    stderrOverride: stderrOverride,
+  ));
+  runner.addCommand(BashPostHookCommand(
     envOverride: envOverride,
     stdinOverride: stdinOverride,
     stdoutOverride: stdoutOverride,

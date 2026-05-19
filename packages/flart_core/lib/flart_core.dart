@@ -13,6 +13,7 @@ export 'src/config/config.dart'
         LogConfig,
         LogLevel,
         FlartConfigException;
+export 'src/constants.dart' show BashFilterThresholds;
 export 'src/env.dart' show FlartEnv;
 export 'src/log/logger.dart' show Logger;
 export 'src/project_context.dart' show ProjectContext;

@@ -5,6 +5,123 @@ All notable changes to flart will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-05-19
+
+Bash output mutation arrives via Claude Code v2.1.121+'s
+`hookSpecificOutput.updatedToolOutput`. This release also inlines the
+formerly-planned v0.2.0 content (sub-agent context, CWD savings); the
+v0.2.0 tag was rolled back on 2026-05-19 so the two paradigm changes
+ship as one release instead of two fragmented ones.
+
+### Added — output mutation
+
+- **PostToolUse / Bash hook (Claude Code v2.1.121+).** After the agent's
+  shell command runs, `~/.config/flart/hooks/bash_post_hook.sh` (new)
+  execs `flart bash-post-hook` (new hidden subcommand), which tees the
+  raw output, runs `BashPostFilter`, and emits
+  `hookSpecificOutput.updatedToolOutput` + `additionalContext`. Decision
+  tree per README "How it works": empty / `flart …` / tee-read /
+  `FLART_FULL_OUTPUT=1` / small (≤30 lines) → passthrough; 31–200 lines
+  → head 20 + tail 5; > 200 lines → head 15 + tail 5 + error grep over
+  the elided body; exit ≠ 0 → framed `Command failed (exit N)` + stderr
+  (≤ 2 KB) + stdout tail (20 lines). Anti-bloat fallback mirrors
+  FilterRunner: bypass when the framed output would exceed raw bytes.
+- **Claude Code version detection.** `flart init` calls `claude --version`,
+  parses the semver triple, and skips PostToolUse install when the
+  detected version is below 2.1.121 with an explanatory note. `flart
+  init --check` adds a `Claude Code` probe row showing the version + an
+  upgrade hint when applicable. PreToolUse hooks install regardless.
+- **`bash_post` module in `flart savings`.** No code change in the
+  reporter — `byModule` groups dynamically on the `module` column, so
+  rows recorded by the new hook show up alongside `filter` and
+  `executor`. `command` column captures the first token of the shell
+  command, with special-cases for `python -c` / `dart -c` / shell
+  builtins.
+- **BashFilterThresholds.** New named-constant class in
+  `flart_core/src/constants.dart` holds the line-count / byte-count
+  thresholds for the filter. Hard-coded in v0.3.0; v0.4.0 will lift to
+  YAML config.
+
+### Added — formerly v0.2.0
+
+- **PreToolUse / Task hook.** Records the activation in
+  `subagent_activations` (migration v2) and emits
+  `hookSpecificOutput.additionalContext` carrying a short flart usage
+  reminder for the spawned sub-agent. Script:
+  `~/.config/flart/hooks/task_hook.sh` → `flart task-hook` (hidden
+  subcommand). Soft-fails when `flart` isn't on PATH.
+- **`flart savings --all`** for the old cumulative-across-projects view.
+- **`flart savings --project-path=<path>`** for explicit project
+  scoping.
+- **`subagent_activations` count** in `flart savings` text output
+  (headline line, only shown when > 0) and JSON output
+  (`summary.subagent_activations`, always present).
+
+### Changed
+
+- **`flart savings` default scope.** Without flags, the report now
+  scopes to the current project's `pubspec.yaml` root instead of the
+  all-projects total. Running outside any Flutter/Dart project falls
+  back to `--all` automatically with an explanatory note on stderr.
+- **`flart init` preview text** lists all three hook scripts (Bash
+  PreToolUse, Task PreToolUse, Bash PostToolUse) and mentions the
+  version gate. `--show` reports the install status of every script +
+  every settings.json entry; `--check` adds the Claude Code version
+  probe.
+- **`HookChecker.diagnose`** signature: new `bashPostHookScriptPath` and
+  `detectVersion` parameters (both optional — backward-compatible for
+  external callers).
+
+### Deprecated
+
+- **`flart savings --project`** (boolean flag) is deprecated. It still
+  scopes to the current project (equivalent to the new default) but
+  prints a deprecation warning on stderr. To be removed in v0.4.0.
+  Replacement: just call `flart savings` (default), or use
+  `--project-path=<path>` for explicit scoping.
+
+### Schema
+
+- Migration **v2** adds `subagent_activations(id, timestamp,
+  project_path, parent_session_id)` plus two indexes
+  (`idx_subagent_timestamp`, `idx_subagent_project`). Additive only —
+  existing `invocations` table and indexes untouched. v0.3.0 ships v2
+  baseline; existing v0.1.0 DBs upgrade automatically.
+
+### Decision log
+
+- **Read/Grep/Edit/Write matchers stay excluded.** Output mutation is
+  now possible via PostToolUse `updatedToolOutput`, but only for Bash —
+  and we deliberately don't extend the filter to the file-reading
+  tools. README "What flart deliberately doesn't intercept" documents
+  the reasoning (silent context drops cause agent confusion; the agent
+  already chooses Grep mode deliberately; Edit/Write input is the
+  agent's own draft).
+- **`SubagentStart` event still not used.** Claude Code v2.1.116+ lists
+  it but it's unstable per GH issues #27755 and #19170. `PreToolUse`
+  matcher `Task` is the documented, stable path.
+- **v0.2.0 tag rolled back.** Tagged briefly on 2026-05-19, then
+  deleted (local + remote) so the sub-agent context + CWD savings work
+  could ship alongside the new Bash output mutation as a single
+  paradigm change. Code stayed in `main` on the v0.3.0 development
+  track; only the release artifact was undone.
+
+### Internal
+
+- New unit tests: BashFilterThresholds (4), claude version
+  parser/detector (12), BashPostFilter (24 across bypass / filter
+  strategies / command labelling / threshold customisation / byte
+  accounting), flart bash-post-hook command (11), installer × Claude
+  version matrix (10 incl. version-gated install/uninstall and stale
+  PostToolUse purging on downgrade), HookChecker version probe (5),
+  init_command (10, updated). Workspace pubspec versions bumped to
+  `0.3.0-dev`.
+- Plan / decision log: [`flart_PLAN.md`](./flart_PLAN.md) v1.15.
+- Manual test plan for end-to-end verification:
+  [`V0.3.0_TEST_PLAN.md`](./V0.3.0_TEST_PLAN.md).
+
+[0.3.0]: https://github.com/MelihCevhertas/flart/releases/tag/v0.3.0
+
 ## [0.1.0] — 2026-05-19 (first public release)
 
 First usable release. Targets macOS (Apple Silicon) + Linux (x64), Dart

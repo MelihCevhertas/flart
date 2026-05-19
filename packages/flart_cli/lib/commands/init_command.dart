@@ -25,11 +25,17 @@ class InitCommand extends Command<int> {
   final String? _settingsPathOverride;
   final String? _hookScriptPathOverride;
   final String? _taskHookScriptPathOverride;
+  final String? _bashPostHookScriptPathOverride;
   final String? _claudeMdPathOverride;
 
   /// Injectable PATH probe (`flart init --check`). Defaults to running
   /// `which` via Process.run.
   final Future<String?> Function(String exe)? _whichExeOverride;
+
+  /// Injectable Claude Code version probe. Production calls `claude --version`;
+  /// tests pass a fake to gate PostToolUse install behaviour without needing
+  /// the binary on PATH.
+  final Future<ClaudeCodeVersion?> Function()? _detectVersionOverride;
 
   InitCommand({
     FlartEnv? envOverride,
@@ -39,8 +45,10 @@ class InitCommand extends Command<int> {
     String? settingsPathOverride,
     String? hookScriptPathOverride,
     String? taskHookScriptPathOverride,
+    String? bashPostHookScriptPathOverride,
     String? claudeMdPathOverride,
     Future<String?> Function(String exe)? whichExeOverride,
+    Future<ClaudeCodeVersion?> Function()? detectVersionOverride,
   })  : _envOverride = envOverride,
         _stdoutOverride = stdoutOverride,
         _stderrOverride = stderrOverride,
@@ -48,8 +56,10 @@ class InitCommand extends Command<int> {
         _settingsPathOverride = settingsPathOverride,
         _hookScriptPathOverride = hookScriptPathOverride,
         _taskHookScriptPathOverride = taskHookScriptPathOverride,
+        _bashPostHookScriptPathOverride = bashPostHookScriptPathOverride,
         _claudeMdPathOverride = claudeMdPathOverride,
-        _whichExeOverride = whichExeOverride {
+        _whichExeOverride = whichExeOverride,
+        _detectVersionOverride = detectVersionOverride {
     argParser
       ..addFlag('global',
           negatable: false,
@@ -95,11 +105,15 @@ class InitCommand extends Command<int> {
     final env = _envOverride ?? FlartEnv.fromPlatform();
 
     final paths = _resolvePaths(env);
+    final detectVersion = _detectVersionOverride ?? detectClaudeVersion;
+    final claudeVersion = await detectVersion();
 
     final hookInstaller = HookInstaller(
       settingsPath: paths.settingsPath,
       hookScriptPath: paths.hookScriptPath,
       taskHookScriptPath: paths.taskHookScriptPath,
+      bashPostHookScriptPath: paths.bashPostHookScriptPath,
+      claudeVersion: claudeVersion,
     );
     final projectInstaller = ProjectInstaller(claudeMdPath: paths.claudeMdPath);
 
@@ -113,11 +127,15 @@ class InitCommand extends Command<int> {
     }
 
     if (results['check'] as bool) {
-      final checker = HookChecker(whichExe: _whichExeOverride);
+      final checker = HookChecker(
+        whichExe: _whichExeOverride,
+        detectVersion: _detectVersionOverride,
+      );
       final probes = await checker.diagnose(
         settingsPath: paths.settingsPath,
         hookScriptPath: paths.hookScriptPath,
         taskHookScriptPath: paths.taskHookScriptPath,
+        bashPostHookScriptPath: paths.bashPostHookScriptPath,
         projectClaudeMdPath: paths.claudeMdPath,
       );
       out.writeln(renderCheckTable(probes));
@@ -216,11 +234,15 @@ class InitCommand extends Command<int> {
       buf.writeln('  • Write hook scripts to:');
       buf.writeln('      ${paths.hookScriptPath}');
       buf.writeln('      ${paths.taskHookScriptPath}');
+      buf.writeln('      ${paths.bashPostHookScriptPath} '
+          '(if Claude Code ≥ 2.1.121)');
       buf.writeln(
-          '  • Add PreToolUse matchers (Bash, Task) to ${paths.settingsPath}');
+          '  • Add PreToolUse matchers (Bash, Task) and PostToolUse / Bash '
+          'to ${paths.settingsPath}');
       buf.writeln(
-          '    Bash matcher auto-allows commands the rewriter maps; Task '
-          'matcher injects a flart usage hint into spawned sub-agents.');
+          '    PreToolUse/Bash rewrites flutter/dart commands to flart; '
+          'PreToolUse/Task injects a flart usage hint into spawned sub-agents; '
+          'PostToolUse/Bash filters long shell output and tees the full log.');
       buf.writeln('    Other commands flow through Claude Code normally.');
     }
     if (scope.project) {
@@ -243,12 +265,15 @@ class InitCommand extends Command<int> {
         _hookScriptPathOverride ?? defaultHookScriptPath(configHome);
     final taskHookScriptPath =
         _taskHookScriptPathOverride ?? defaultTaskHookScriptPath(configHome);
+    final bashPostHookScriptPath = _bashPostHookScriptPathOverride ??
+        defaultBashPostHookScriptPath(configHome);
     final claudeMdPath = _claudeMdPathOverride ??
         p.join(ProjectContext.detect().root, 'CLAUDE.md');
     return _Paths(
       settingsPath: settingsPath,
       hookScriptPath: hookScriptPath,
       taskHookScriptPath: taskHookScriptPath,
+      bashPostHookScriptPath: bashPostHookScriptPath,
       claudeMdPath: claudeMdPath,
     );
   }
@@ -275,11 +300,13 @@ class _Paths {
   final String settingsPath;
   final String hookScriptPath;
   final String taskHookScriptPath;
+  final String bashPostHookScriptPath;
   final String claudeMdPath;
   const _Paths({
     required this.settingsPath,
     required this.hookScriptPath,
     required this.taskHookScriptPath,
+    required this.bashPostHookScriptPath,
     required this.claudeMdPath,
   });
 }

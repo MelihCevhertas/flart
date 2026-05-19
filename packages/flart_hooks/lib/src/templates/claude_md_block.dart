@@ -44,4 +44,16 @@ which keeps tool output out of your context window.
 Sub-agents (Task tool): when you spawn one, the PreToolUse/Task hook
 prepends a short flart usage reminder to its prompt automatically, so
 the same routing applies inside the sub-agent without any extra setup.
+
+Raw shell commands (grep, find, python, awk, custom binaries) — their
+output is auto-filtered by flart's PostToolUse/Bash hook on Claude Code
+v2.1.121+. Decision tree: ≤30 lines passthrough; 31-200 lines → head 20
++ tail 5 + tee path; >200 lines → head 15 + tail 5 + error grep + tee
+path; exit ≠ 0 → framed Command failed + stderr + stdout tail + tee
+path. The full raw output is always written to
+~/.local/share/flart/tee/<epoch>_<slug>_bash.log.
+
+To bypass the filter when you genuinely need the full output:
+  - prefix the command with FLART_FULL_OUTPUT=1, or
+  - cat/head/tail/grep the tee log directly (auto-passthrough).
 $claudeMdMarkerEnd''';

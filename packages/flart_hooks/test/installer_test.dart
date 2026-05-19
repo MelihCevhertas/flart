@@ -82,9 +82,11 @@ void main() {
   group('HookInstaller — settings.json idempotency', () {
     late Directory tmp;
     late HookInstaller installer;
+    late HookInstaller installerOldClaude;
     late String settingsPath;
     late String hookScriptPath;
     late String taskHookScriptPath;
+    late String bashPostHookScriptPath;
 
     setUp(() {
       tmp = Directory.systemTemp.createTempSync('flart_inst_');
@@ -92,32 +94,64 @@ void main() {
       settingsPath = p.join(tmp.path, '.claude', 'settings.json');
       hookScriptPath = p.join(tmp.path, '.config', 'flart', 'hooks', 'rewrite.sh');
       taskHookScriptPath = p.join(tmp.path, '.config', 'flart', 'hooks', 'task_hook.sh');
+      bashPostHookScriptPath = p.join(tmp.path, '.config', 'flart', 'hooks', 'bash_post_hook.sh');
       installer = HookInstaller(
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
+        claudeVersion: const ClaudeCodeVersion(2, 1, 144),
+      );
+      // Same paths, but Claude Code is too old → PostToolUse should be skipped.
+      installerOldClaude = HookInstaller(
+        settingsPath: settingsPath,
+        hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
+        claudeVersion: const ClaudeCodeVersion(2, 1, 119),
       );
     });
 
-    List<Map<String, Object?>> preToolUseEntries(String path) {
+    List<Map<String, Object?>> entriesFor(String path, String event) {
       final settings = jsonDecode(File(path).readAsStringSync())
           as Map<String, Object?>;
-      return ((settings['hooks'] as Map)['PreToolUse'] as List)
-          .cast<Map<String, Object?>>();
+      final hooks = settings['hooks'];
+      if (hooks is! Map) return const [];
+      final list = hooks[event];
+      if (list is! List) return const [];
+      return list.cast<Map<String, Object?>>();
     }
 
-    test('fresh install writes both scripts + adds Bash & Task entries', () {
+    test('fresh install writes all three scripts + PreToolUse + PostToolUse '
+        '(modern Claude)', () {
       installer.installAll();
       expect(File(hookScriptPath).existsSync(), isTrue);
       expect(File(taskHookScriptPath).existsSync(), isTrue);
-      final entries = preToolUseEntries(settingsPath);
-      expect(entries.length, 2);
-      final bash =
-          entries.firstWhere((e) => e['matcher'] == 'Bash');
-      expect((bash['hooks'] as List).first['command'], hookScriptPath);
-      final task =
-          entries.firstWhere((e) => e['matcher'] == 'Task');
-      expect((task['hooks'] as List).first['command'], taskHookScriptPath);
+      expect(File(bashPostHookScriptPath).existsSync(), isTrue);
+
+      final pre = entriesFor(settingsPath, 'PreToolUse');
+      expect(pre.length, 2);
+      expect(pre.map((e) => e['matcher']), containsAll(['Bash', 'Task']));
+
+      final post = entriesFor(settingsPath, 'PostToolUse');
+      expect(post.length, 1);
+      expect(post.first['matcher'], 'Bash');
+      expect((post.first['hooks'] as List).first['command'],
+          bashPostHookScriptPath);
+    });
+
+    test('older Claude (< v2.1.121) → PostToolUse skipped with note', () {
+      final messages = installerOldClaude.installAll();
+      expect(File(hookScriptPath).existsSync(), isTrue);
+      expect(File(taskHookScriptPath).existsSync(), isTrue);
+      expect(File(bashPostHookScriptPath).existsSync(), isFalse,
+          reason: 'no script when version is below the threshold');
+      expect(messages.any((m) => m.contains('PostToolUse/Bash hook skipped')),
+          isTrue);
+      // settings.json has only PreToolUse entries — no PostToolUse key at all.
+      final settings = jsonDecode(File(settingsPath).readAsStringSync())
+          as Map<String, Object?>;
+      expect((settings['hooks'] as Map).containsKey('PostToolUse'), isFalse);
     });
 
     test('install preserves unrelated fields and other Bash hooks', () {
@@ -141,41 +175,52 @@ void main() {
           as Map<String, Object?>;
       expect(settings['theme'], 'dark');
       expect(settings['model'], 'sonnet');
-      final entries = preToolUseEntries(settingsPath);
+      final pre = entriesFor(settingsPath, 'PreToolUse');
       // Unrelated Bash hook + flart Bash + flart Task = 3 entries.
-      expect(entries.length, 3);
+      expect(pre.length, 3);
       expect(
-        entries.any((e) =>
+        pre.any((e) =>
             e['matcher'] == 'Bash' &&
             ((e['hooks'] as List).first as Map)['command'] ==
                 '/some/other/hook.sh'),
         isTrue,
       );
       expect(
-        entries.any((e) =>
+        pre.any((e) =>
             ((e['hooks'] as List).first as Map)['command'] == hookScriptPath),
         isTrue,
       );
       expect(
-        entries.any((e) =>
+        pre.any((e) =>
             ((e['hooks'] as List).first as Map)['command'] ==
             taskHookScriptPath),
         isTrue,
       );
+      // PostToolUse Bash entry also added (modern Claude).
+      final post = entriesFor(settingsPath, 'PostToolUse');
+      expect(post.length, 1);
     });
 
     test('second install updates same entries (no duplicates)', () {
       installer.installAll();
       installer.installAll();
-      final entries = preToolUseEntries(settingsPath);
-      final flartEntries = entries.where((e) {
-        final cmd = ((e['hooks'] as List).first as Map)['command'];
-        return cmd == hookScriptPath || cmd == taskHookScriptPath;
-      });
-      expect(flartEntries.length, 2);
+      final pre = entriesFor(settingsPath, 'PreToolUse');
+      final post = entriesFor(settingsPath, 'PostToolUse');
+      final flartCmds = [
+        ...pre.map((e) => ((e['hooks'] as List).first as Map)['command']),
+        ...post.map((e) => ((e['hooks'] as List).first as Map)['command']),
+      ];
+      expect(
+        flartCmds.where((c) =>
+            c == hookScriptPath ||
+            c == taskHookScriptPath ||
+            c == bashPostHookScriptPath),
+        hasLength(3),
+      );
     });
 
-    test('uninstall removes both flart entries + scripts, keeps others', () {
+    test('uninstall purges all three flart entries + scripts, keeps others',
+        () {
       Directory(p.dirname(settingsPath)).createSync(recursive: true);
       File(settingsPath).writeAsStringSync(jsonEncode({
         'hooks': {
@@ -193,25 +238,46 @@ void main() {
       installer.uninstallAll();
       expect(File(hookScriptPath).existsSync(), isFalse);
       expect(File(taskHookScriptPath).existsSync(), isFalse);
-      final entries = preToolUseEntries(settingsPath);
-      expect(entries.length, 1);
+      expect(File(bashPostHookScriptPath).existsSync(), isFalse);
+      final pre = entriesFor(settingsPath, 'PreToolUse');
+      expect(pre.length, 1);
       expect(
-        ((entries.first['hooks'] as List).first as Map)['command'],
+        ((pre.first['hooks'] as List).first as Map)['command'],
         '/some/other/hook.sh',
       );
+      final settings = jsonDecode(File(settingsPath).readAsStringSync())
+          as Map<String, Object?>;
+      expect((settings['hooks'] as Map).containsKey('PostToolUse'), isFalse,
+          reason: 'empty PostToolUse list should drop the key entirely');
     });
 
-    test('describeState reports installed vs missing for both hooks', () {
+    test('uninstall also purges a stale PostToolUse entry when '
+        'Claude was later downgraded', () {
+      // Simulate: PostToolUse installed under modern Claude, then user
+      // downgrades and runs `flart init --uninstall`. The entry must still
+      // be removed even though the installer's claudeVersion is too low.
+      installer.installAll();
+      expect(File(bashPostHookScriptPath).existsSync(), isTrue);
+      installerOldClaude.uninstallAll();
+      expect(File(bashPostHookScriptPath).existsSync(), isFalse);
+      final settings = jsonDecode(File(settingsPath).readAsStringSync())
+          as Map<String, Object?>;
+      expect((settings['hooks'] as Map?)?.containsKey('PostToolUse'),
+          isNot(isTrue));
+    });
+
+    test('describeState reports Claude Code version + all three hooks', () {
       final state0 = installer.describeState();
-      expect(state0, contains('Hook script (Bash)'));
-      expect(state0, contains('Hook script (Task)'));
+      expect(state0, contains('Claude Code:'));
+      expect(state0, contains('Hook script (Bash, PreToolUse)'));
+      expect(state0, contains('Hook script (Task, PreToolUse)'));
+      expect(state0, contains('Hook script (Bash, PostToolUse)'));
       expect(state0, contains('not installed'));
       installer.installAll();
       final state = installer.describeState();
       expect(state, contains('✓ $hookScriptPath'));
       expect(state, contains('✓ $taskHookScriptPath'));
-      expect(state, contains('points to $hookScriptPath'));
-      expect(state, contains('points to $taskHookScriptPath'));
+      expect(state, contains('✓ $bashPostHookScriptPath'));
     });
   });
 
@@ -288,6 +354,7 @@ void main() {
     late String settingsPath;
     late String hookScriptPath;
     late String taskHookScriptPath;
+    late String bashPostHookScriptPath;
 
     setUp(() {
       tmp = Directory.systemTemp.createTempSync('flart_check_');
@@ -295,33 +362,70 @@ void main() {
       settingsPath = p.join(tmp.path, '.claude', 'settings.json');
       hookScriptPath = p.join(tmp.path, '.config', 'flart', 'hooks', 'rewrite.sh');
       taskHookScriptPath = p.join(tmp.path, '.config', 'flart', 'hooks', 'task_hook.sh');
+      bashPostHookScriptPath =
+          p.join(tmp.path, '.config', 'flart', 'hooks', 'bash_post_hook.sh');
     });
 
-    test('clean install: all checks pass', () async {
+    test('clean install on modern Claude: all checks pass', () async {
       Directory(p.dirname(settingsPath)).createSync(recursive: true);
       Directory(p.dirname(hookScriptPath)).createSync(recursive: true);
       File(settingsPath).writeAsStringSync('{}');
       File(hookScriptPath).writeAsStringSync('#!/bin/bash\n');
       File(taskHookScriptPath).writeAsStringSync('#!/bin/bash\n');
+      File(bashPostHookScriptPath).writeAsStringSync('#!/bin/bash\n');
       final checker = HookChecker(
         whichExe: (exe) async => '/fake/$exe',
+        detectVersion: () async => const ClaudeCodeVersion(2, 1, 144),
       );
       final results = await checker.diagnose(
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
       );
       expect(results.every((r) => r.ok), isTrue);
+    });
+
+    test('older Claude → version row fails with upgrade hint, '
+        'PostToolUse script absence is tolerated', () async {
+      Directory(p.dirname(settingsPath)).createSync(recursive: true);
+      Directory(p.dirname(hookScriptPath)).createSync(recursive: true);
+      File(settingsPath).writeAsStringSync('{}');
+      File(hookScriptPath).writeAsStringSync('#!/bin/bash\n');
+      File(taskHookScriptPath).writeAsStringSync('#!/bin/bash\n');
+      // bash_post_hook.sh intentionally absent.
+      final checker = HookChecker(
+        whichExe: (exe) async => '/fake/$exe',
+        detectVersion: () async => const ClaudeCodeVersion(2, 1, 119),
+      );
+      final results = await checker.diagnose(
+        settingsPath: settingsPath,
+        hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
+      );
+      final claude = results.firstWhere((r) => r.label == 'Claude Code');
+      expect(claude.ok, isTrue,
+          reason: 'detected version is OK; only output mutation is gated');
+      expect(claude.detail, contains('requires 2.1.121+'));
+      expect(claude.hint, contains('Upgrade Claude Code'));
+      // PostToolUse script row is "ok=true detail='skipped'" — not an error.
+      final post = results.firstWhere(
+          (r) => r.label == 'Hook script (Bash, PostToolUse)');
+      expect(post.ok, isTrue);
+      expect(post.detail, contains('skipped'));
     });
 
     test('jq missing → fails with actionable hint', () async {
       final checker = HookChecker(
         whichExe: (exe) async => exe == 'jq' ? null : '/fake/$exe',
+        detectVersion: () async => const ClaudeCodeVersion(2, 1, 144),
       );
       final results = await checker.diagnose(
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
+        bashPostHookScriptPath: bashPostHookScriptPath,
       );
       final jq = results.firstWhere((r) => r.label == 'jq');
       expect(jq.ok, isFalse);
@@ -336,20 +440,39 @@ void main() {
       // task_hook.sh intentionally absent.
       final checker = HookChecker(
         whichExe: (exe) async => '/fake/$exe',
+        detectVersion: () async => const ClaudeCodeVersion(2, 1, 144),
       );
       final results = await checker.diagnose(
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
         taskHookScriptPath: taskHookScriptPath,
       );
-      final task = results.firstWhere((r) => r.label == 'Hook script (Task)');
+      final task = results.firstWhere(
+          (r) => r.label == 'Hook script (Task, PreToolUse)');
       expect(task.ok, isFalse);
       expect(task.hint, contains('flart init --global'));
+    });
+
+    test('claude binary missing → version probe shows ✗ with hint', () async {
+      final checker = HookChecker(
+        whichExe: (exe) async => '/fake/$exe',
+        detectVersion: () async => null,
+      );
+      final results = await checker.diagnose(
+        settingsPath: settingsPath,
+        hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
+      );
+      final claude = results.firstWhere((r) => r.label == 'Claude Code');
+      expect(claude.ok, isFalse);
+      expect(claude.detail, contains('version unknown'));
+      expect(claude.hint, contains('Install Claude Code'));
     });
 
     test('rendered table shows ✓/✗ with hint indentation', () async {
       final checker = HookChecker(
         whichExe: (exe) async => exe == 'flart' ? '/usr/local/bin/flart' : null,
+        detectVersion: () async => const ClaudeCodeVersion(2, 1, 144),
       );
       final results = await checker.diagnose(
         settingsPath: settingsPath,

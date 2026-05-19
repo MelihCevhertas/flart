@@ -18,15 +18,15 @@ per-command breakdown. Per-invocation numbers across other projects sit
 in [Typical savings](#typical-savings); your real-session savings depend
 on command mix and hook adoption.
 
-> Status: **v0.1.0 released; v0.3.0 in development on `main`.** macOS
-> (Apple Silicon) + Linux (x64). Single binary, no runtime dependencies
-> beyond Dart/Flutter and `jq` (for the Bash hook). Intel Mac, Windows,
+> Status: **v0.3.0 — Bash output mutation + sub-agent context + CWD savings.**
+> macOS (Apple Silicon) + Linux (x64). Single binary, no runtime
+> dependencies beyond Dart/Flutter and `jq` (for the Bash rewrite hook).
+> The new PostToolUse / Bash output mutation requires **Claude Code
+> v2.1.121+**; older Claude versions still get the PreToolUse rewrite +
+> sub-agent context but skip output mutation cleanly. Intel Mac, Windows,
 > and `fvm` support still deferred — Intel Mac users can build from
-> source (see [Limitations](#limitations)). v0.3.0 will bundle the
-> sub-agent context injection, CWD-scoped savings, and Bash output
-> mutation (Claude Code v2.1.121+) into one release rather than ship
-> them piecemeal; the v0.2.0 tag that briefly existed was rolled back
-> on 2026-05-19 to consolidate.
+> source (see [Limitations](#limitations)). The interim v0.2.0 tag was
+> rolled back on 2026-05-19 and its contents merged into this release.
 
 ---
 
@@ -286,54 +286,91 @@ Environment overrides:
 
 ## How it works
 
-1. **PreToolUse / Bash hook.** `flart init --global` writes
-   `~/.config/flart/hooks/rewrite.sh` and adds a `Bash` matcher entry to
-   `~/.claude/settings.json`. When Claude Code is about to run a bash
-   command, the hook reads the command from stdin, pipes it through
+flart wires into three Claude Code hook events. `flart init --global`
+writes the hook scripts and the settings.json entries; re-running is
+idempotent.
+
+1. **PreToolUse / Bash → command rewrite.**
+   `~/.config/flart/hooks/rewrite.sh`. When Claude Code is about to run a
+   bash command, the hook reads the command from stdin, pipes it through
    `flart rewrite`, and (if the command is mapped) returns a
    `permissionDecision: "allow"` payload with the rewritten command —
-   no per-call permission prompt.
-
-2. **PreToolUse / Task hook (v0.2.0).** A second entry uses matcher
-   `Task` and points to `~/.config/flart/hooks/task_hook.sh`. When the
-   parent agent spawns a sub-agent via the Task tool, the hook records
-   the activation in `subagent_activations` and returns
-   `hookSpecificOutput.additionalContext` — a short flart usage hint
-   that Claude Code merges into the sub-agent's prompt so it knows to
-   prefer `flart analyze`/`flart test`/`flart exec` over raw `flutter`
-   and `dart` calls.
-
-3. **`flart rewrite`** is a pure Dart function. Pipes, redirects,
-   backgrounding (`&`) and chained commands (`;`) all bail to passthrough
+   no per-call permission prompt. Unmapped commands flow through normally
    so output redirection stays where the user put it.
 
-4. **Filters** are pure transforms: `(stdout, stderr, exitCode) →
-   (compact text, metadata, was_truncated)`. They never spawn processes.
-   That happens in `FilterRunner` (CLI layer), which also handles the
-   tee dump on failure and the SQLite tracking write.
+2. **PreToolUse / Task → sub-agent context.**
+   `~/.config/flart/hooks/task_hook.sh`. When the parent agent spawns a
+   sub-agent via the Task tool, the hook records the activation in the
+   `subagent_activations` table and returns
+   `hookSpecificOutput.additionalContext` — a short flart usage reminder
+   that Claude Code merges into the sub-agent's prompt so it knows to
+   prefer `flart analyze` / `flart test` / `flart exec` over raw
+   `flutter` and `dart` calls.
 
-5. **Savings DB** lives at `~/.local/share/flart/savings.db`. One row per
-   invocation in `invocations` (byte/char/token counts, exit code,
-   duration, optional tee path) and one row per sub-agent spawn in
-   `subagent_activations` (timestamp, project path, parent session id).
-   `flart savings` aggregates both.
+3. **PostToolUse / Bash → output mutation (Claude Code v2.1.121+).**
+   `~/.config/flart/hooks/bash_post_hook.sh`. After the agent's shell
+   command runs, the hook reads `tool_response.stdout` + `stderr`, runs
+   `BashPostFilter`, optionally rewrites the response via
+   `hookSpecificOutput.updatedToolOutput`, and tees the full output to
+   `~/.local/share/flart/tee/<epoch>_<slug>_bash.log`. Decision tree:
 
-6. **Anti-bloat fallback.** If a filter happens to produce *more* bytes
-   than the raw command did, FilterRunner reverts to raw. So the agent
-   never pays a worse cost than the unwrapped command would have charged
-   — at most equal, usually a small fraction.
+   | Condition                                                 | Behaviour     |
+   | --------------------------------------------------------- | ------------- |
+   | Empty output                                              | passthrough   |
+   | Command starts with `flart …` (cd-prefix aware)           | passthrough   |
+   | Command contains `FLART_FULL_OUTPUT=1`                    | passthrough (explicit) |
+   | First token in `cat/head/tail/less/more/wc/grep` + arg under tee dir | passthrough (recovery) |
+   | Exit 0 + ≤ 30 lines                                       | passthrough   |
+   | Exit 0 + 31–200 lines                                     | head 20 + tail 5 + tee path |
+   | Exit 0 + > 200 lines                                      | head 15 + tail 5 + error grep + tee path |
+   | Exit ≠ 0 + substantial output                             | framed `Command failed (exit N)` + stderr (≤ 2 KB) + stdout tail (20 lines) + tee path |
+   | Any branch where the framed output would exceed raw bytes | passthrough (anti-bloat) |
+
+4. **`flart rewrite`** is a pure Dart function. Pipes, redirects,
+   backgrounding (`&`) and chained commands (`;`) all bail to passthrough.
+
+5. **Filters** in `flart_filters/` are pure transforms:
+   `(stdout, stderr, exitCode) → (compact text, metadata, was_truncated)`.
+   They never spawn processes. That happens in `FilterRunner` (CLI layer),
+   which also handles the tee dump on failure and the SQLite tracking
+   write. The PostToolUse / Bash filter follows the same anti-bloat
+   contract — never produces more bytes than the raw command did.
+
+6. **Savings DB** lives at `~/.local/share/flart/savings.db`. Rows:
+   - `invocations` (one per flart subcommand invocation OR per
+     PostToolUse / Bash mutation; `module` column distinguishes
+     `filter`, `executor`, and `bash_post`).
+   - `subagent_activations` (one per Task hook fire — counter only, no
+     byte/token savings tracked).
+
+### What flart deliberately doesn't intercept
+
+`PreToolUse` would let us mutate the input of any Claude Code tool,
+including Read, Grep, Edit, and Write. We don't. The hook surface area
+is restricted to **Bash** (input + output) and **Task** (sub-agent
+context). The reasoning:
+
+- **Read.** Truncating file content causes silent agent confusion: the
+  agent assumes it saw the full file and makes wrong decisions about
+  line references, function boundaries, and call sites.
+- **Grep.** The agent already chooses between `mode: "files_with_matches"`
+  and `mode: "content"` based on the question it's answering. Imposing
+  a filter on top would override that deliberate choice.
+- **Edit / Write.** The input is already the agent's own draft — there
+  is nothing to filter that the agent didn't just produce. Mutating it
+  would corrupt their work.
+- **PostToolUse for Read/Grep/Edit/Write.** Claude Code's PostToolUse
+  hook can add a system reminder via `additionalContext` but cannot
+  swap the tool result the agent reads (output mutation is a PreToolUse
+  capability for *some* tools and a per-event opt-in elsewhere). For
+  Bash specifically, v2.1.121+ added `updatedToolOutput` on PostToolUse —
+  that's what powers the new filter.
+
+We may revisit Read/Grep in a future opt-in beta once we have data on
+where the agent benefits from compression vs where it suffers from
+missing context.
 
 ### Frequently misunderstood
-
-**Q: Why doesn't flart intercept Claude Code's Read/Grep tools?**
-
-A: We can, technically — PreToolUse supports those matchers. We
-deliberately don't. Truncating Read output causes silent agent
-confusion: the agent assumes it saw the full file and makes wrong
-decisions. The token savings rarely outweigh the iteration cost or
-correctness risk. PostToolUse can't modify output at all (only add
-feedback). We may reconsider in a future version with an opt-in beta
-once we have more usage data.
 
 **Q: Does the sub-agent context injection cost tokens?**
 
@@ -343,6 +380,23 @@ It's recorded in `subagent_activations` as a counter only; the savings
 report shows the number of activations but no byte/token "savings"
 because there is no measurable raw-vs-filtered comparison for context
 injection.
+
+**Q: What happens to a `cat`/`head`/`tail` of the tee log?**
+
+A: Bypassed by the PostToolUse filter. The decision tree's `tee-read`
+rule catches reads of any file under `~/.local/share/flart/tee/`, so the
+recovery path (agent fetches the full log explicitly) doesn't loop back
+through the filter. Belt-and-braces escape: prefix the command with
+`FLART_FULL_OUTPUT=1` and it also passes through.
+
+**Q: I'm on Claude Code < 2.1.121. What still works?**
+
+A: PreToolUse / Bash (command rewrite) and PreToolUse / Task (sub-agent
+context). The PostToolUse / Bash output mutation is gated on v2.1.121+
+because `hookSpecificOutput.updatedToolOutput` doesn't exist before
+that. `flart init` reports the version it detected and skips the
+PostToolUse install without erroring; upgrade Claude Code and re-run
+`flart init` to enable it.
 
 ---
 
