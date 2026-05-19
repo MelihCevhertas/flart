@@ -18,19 +18,24 @@ class TextFormatter {
     required List<GroupedSavings> byModule,
     required List<GroupedSavings> byProject,
     required List<GroupedSavings> topCommands,
+    int subagentActivations = 0,
   }) {
     final buf = StringBuffer();
     buf.writeln('flart Savings Report');
     buf.writeln('====================');
     buf.writeln();
 
-    if (summary.invocations == 0) {
+    if (summary.invocations == 0 && subagentActivations == 0) {
       buf.writeln('No invocations recorded yet. Run flart commands first.');
       buf.write(_disclaimer());
       return buf.toString();
     }
 
     buf.writeln(_headline(summary));
+    if (subagentActivations > 0) {
+      buf.writeln('  Sub-agent activations:       ${_intStr(subagentActivations)}'
+          '  (Task hook fires; no byte/token savings tracked)');
+    }
     buf.writeln();
     if (byModule.isNotEmpty) {
       buf.writeln('By module:');

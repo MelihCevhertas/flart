@@ -1,4 +1,5 @@
 import 'runner.dart';
+import 'v2.dart';
 
 /// Initial schema — frozen at v0 of the data model per Plan Section 16.4.
 /// Future migrations may add columns but must not rename or drop existing ones.
@@ -39,4 +40,4 @@ class MigrationV1 implements Migration {
 
 /// All known migrations, in order. Appended to in future versions; never
 /// reordered or rewritten.
-const List<Migration> allMigrations = [MigrationV1()];
+const List<Migration> allMigrations = [MigrationV1(), MigrationV2()];

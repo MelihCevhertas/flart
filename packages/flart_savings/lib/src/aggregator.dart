@@ -216,6 +216,23 @@ class Aggregator {
     );
   }
 
+  /// Sub-agent activation count for the given window (v0.2.0). Lives in a
+  /// separate table from `invocations`; this getter is the reporter's single
+  /// entry point so the CLI doesn't have to depend on [SubagentActivationRepo]
+  /// directly. Returns 0 when the table is missing (older DBs pre-migration).
+  int subagentActivationsCount({
+    DateTime? since,
+    DateTime? until,
+    String? projectPath,
+  }) {
+    try {
+      return SubagentActivationRepo(db)
+          .count(since: since, until: until, projectPath: projectPath);
+    } catch (_) {
+      return 0;
+    }
+  }
+
   /// Daily buckets (UTC midnight) over the last [days] days.
   List<DailyBucket> dailyBuckets({int days = 30, DateTime Function()? now}) {
     final nowDt = (now ?? DateTime.now)().toUtc();

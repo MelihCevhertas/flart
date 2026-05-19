@@ -41,6 +41,7 @@ Future<({int code, String stdout, String stderr})> _runInit(
   List<String> args, {
   required String settingsPath,
   required String hookScriptPath,
+  required String taskHookScriptPath,
   required String claudeMdPath,
   Future<String?> Function(String)? whichExe,
   String? stdinReply,
@@ -57,6 +58,7 @@ Future<({int code, String stdout, String stderr})> _runInit(
     stdinOverride: stdinSource,
     settingsPathOverride: settingsPath,
     hookScriptPathOverride: hookScriptPath,
+    taskHookScriptPathOverride: taskHookScriptPath,
     claudeMdPathOverride: claudeMdPath,
     whichExeOverride: whichExe ?? (exe) async => '/fake/$exe',
   );
@@ -74,6 +76,7 @@ void main() {
   late Directory tmp;
   late String settingsPath;
   late String hookScriptPath;
+  late String taskHookScriptPath;
   late String claudeMdPath;
 
   setUp(() {
@@ -82,6 +85,8 @@ void main() {
     settingsPath = p.join(tmp.path, '.claude', 'settings.json');
     hookScriptPath =
         p.join(tmp.path, '.config', 'flart', 'hooks', 'rewrite.sh');
+    taskHookScriptPath =
+        p.join(tmp.path, '.config', 'flart', 'hooks', 'task_hook.sh');
     claudeMdPath = p.join(tmp.path, 'project', 'CLAUDE.md');
   });
 
@@ -91,15 +96,19 @@ void main() {
         ['init', '--yes'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
       expect(File(hookScriptPath).existsSync(), isTrue);
+      expect(File(taskHookScriptPath).existsSync(), isTrue);
       expect(File(settingsPath).existsSync(), isTrue);
       expect(File(claudeMdPath).existsSync(), isTrue);
       final settings = jsonDecode(File(settingsPath).readAsStringSync()) as Map;
       final hooks = (settings['hooks'] as Map)['PreToolUse'] as List;
-      expect(hooks.length, 1);
+      // v0.2.0: PreToolUse now has both Bash (rewrite.sh) and Task (task_hook.sh).
+      expect(hooks.length, 2);
+      expect(hooks.map((e) => (e as Map)['matcher']), containsAll(['Bash', 'Task']));
       final claudeContent = File(claudeMdPath).readAsStringSync();
       expect(claudeContent, contains('flart routing'));
     });
@@ -109,6 +118,7 @@ void main() {
         ['init'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
         stdinReply: 'n',
       );
@@ -123,6 +133,7 @@ void main() {
         ['init'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
         stdinReply: 'y',
       );
@@ -137,10 +148,12 @@ void main() {
         ['init', '--global', '--yes'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
       expect(File(hookScriptPath).existsSync(), isTrue);
+      expect(File(taskHookScriptPath).existsSync(), isTrue);
       expect(File(claudeMdPath).existsSync(), isFalse);
     });
 
@@ -149,10 +162,12 @@ void main() {
         ['init', '--project', '--yes'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
       expect(File(hookScriptPath).existsSync(), isFalse);
+      expect(File(taskHookScriptPath).existsSync(), isFalse);
       expect(File(claudeMdPath).existsSync(), isTrue);
     });
   });
@@ -163,6 +178,7 @@ void main() {
         ['init', '--show'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
@@ -174,12 +190,14 @@ void main() {
         ['init', '--yes'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       final r = await _runInit(
         ['init', '--show'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
@@ -194,12 +212,14 @@ void main() {
         ['init', '--yes'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       final r = await _runInit(
         ['init', '--check'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
         whichExe: (exe) async => exe == 'jq' ? null : '/fake/$exe',
       );
@@ -213,12 +233,14 @@ void main() {
         ['init', '--yes'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       final r = await _runInit(
         ['init', '--check'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
@@ -232,6 +254,7 @@ void main() {
         ['init', '--yes'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       // Plant a fake savings.db in the same parent — must remain untouched.
@@ -242,10 +265,12 @@ void main() {
         ['init', '--uninstall'],
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
         claudeMdPath: claudeMdPath,
       );
       expect(r.code, 0);
       expect(File(hookScriptPath).existsSync(), isFalse);
+      expect(File(taskHookScriptPath).existsSync(), isFalse);
       // CLAUDE.md only had the routing block → file gets deleted.
       expect(File(claudeMdPath).existsSync(), isFalse);
       expect(fakeSavings.existsSync(), isTrue,

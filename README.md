@@ -18,11 +18,12 @@ per-command breakdown. Per-invocation numbers across other projects sit
 in [Typical savings](#typical-savings); your real-session savings depend
 on command mix and hook adoption.
 
-> Status: **v0.1.0 — first public release.** macOS (Apple Silicon) +
-> Linux (x64). Single binary, no runtime dependencies beyond Dart/Flutter
-> and `jq` (for the Claude Code hook). Intel Mac, Windows, and `fvm`
-> support deferred to v0.2.0 — Intel Mac users can build from source
-> (see [Limitations](#limitations)).
+> Status: **v0.2.0 — sub-agent context + CWD-scoped savings.** macOS
+> (Apple Silicon) + Linux (x64). Single binary, no runtime dependencies
+> beyond Dart/Flutter and `jq` (for the Bash hook). Intel Mac, Windows,
+> and `fvm` support still deferred — Intel Mac users can build from
+> source (see [Limitations](#limitations)). What changed in v0.2.0:
+> [CHANGELOG](./CHANGELOG.md).
 
 ---
 
@@ -117,12 +118,20 @@ compress better than format-heavy ones) and hook adoption (commands the
 agent runs by name vs by path). To read your own:
 
 ```bash
-flart savings              # full report — All-time totals + by module/project/command
-flart savings --by-command # per-command compression table
-flart savings --since 7d   # last week
-flart savings --details    # most recent invocations with raw/filtered bytes
-flart savings --json       # machine-readable; pipe through jq for custom views
+flart savings                # current project (CWD scope) by default
+flart savings --all          # cumulative across every recorded project
+flart savings --project-path=/path/to/project   # explicit path
+flart savings --by-command   # per-command compression table
+flart savings --since 7d     # last week
+flart savings --details      # most recent invocations with raw/filtered bytes
+flart savings --json         # machine-readable; pipe through jq for custom views
 ```
+
+> **v0.2.0 default changed.** `flart savings` (no flags) now scopes to
+> the current project's `pubspec.yaml` root instead of the all-projects
+> total — most users wanted the local number first. Pass `--all` to get
+> the old cumulative report. Running outside any Flutter/Dart project
+> falls back to `--all` automatically with a note.
 
 Empty database? Run a few flart commands first (e.g. `flart analyze` in a
 project with a `pubspec.yaml`).
@@ -274,7 +283,7 @@ Environment overrides:
 
 ## How it works
 
-1. **PreToolUse hook.** `flart init --global` writes
+1. **PreToolUse / Bash hook.** `flart init --global` writes
    `~/.config/flart/hooks/rewrite.sh` and adds a `Bash` matcher entry to
    `~/.claude/settings.json`. When Claude Code is about to run a bash
    command, the hook reads the command from stdin, pipes it through
@@ -282,23 +291,55 @@ Environment overrides:
    `permissionDecision: "allow"` payload with the rewritten command —
    no per-call permission prompt.
 
-2. **`flart rewrite`** is a pure Dart function. Pipes, redirects,
+2. **PreToolUse / Task hook (v0.2.0).** A second entry uses matcher
+   `Task` and points to `~/.config/flart/hooks/task_hook.sh`. When the
+   parent agent spawns a sub-agent via the Task tool, the hook records
+   the activation in `subagent_activations` and returns
+   `hookSpecificOutput.additionalContext` — a short flart usage hint
+   that Claude Code merges into the sub-agent's prompt so it knows to
+   prefer `flart analyze`/`flart test`/`flart exec` over raw `flutter`
+   and `dart` calls.
+
+3. **`flart rewrite`** is a pure Dart function. Pipes, redirects,
    backgrounding (`&`) and chained commands (`;`) all bail to passthrough
    so output redirection stays where the user put it.
 
-3. **Filters** are pure transforms: `(stdout, stderr, exitCode) →
+4. **Filters** are pure transforms: `(stdout, stderr, exitCode) →
    (compact text, metadata, was_truncated)`. They never spawn processes.
    That happens in `FilterRunner` (CLI layer), which also handles the
    tee dump on failure and the SQLite tracking write.
 
-4. **Savings DB** lives at `~/.local/share/flart/savings.db`. One row per
-   invocation: timestamp, project path, command, byte/char/token counts,
-   exit code, duration, optional tee path. `flart savings` aggregates.
+5. **Savings DB** lives at `~/.local/share/flart/savings.db`. One row per
+   invocation in `invocations` (byte/char/token counts, exit code,
+   duration, optional tee path) and one row per sub-agent spawn in
+   `subagent_activations` (timestamp, project path, parent session id).
+   `flart savings` aggregates both.
 
-5. **Anti-bloat fallback.** If a filter happens to produce *more* bytes
+6. **Anti-bloat fallback.** If a filter happens to produce *more* bytes
    than the raw command did, FilterRunner reverts to raw. So the agent
    never pays a worse cost than the unwrapped command would have charged
    — at most equal, usually a small fraction.
+
+### Frequently misunderstood
+
+**Q: Why doesn't flart intercept Claude Code's Read/Grep tools?**
+
+A: We can, technically — PreToolUse supports those matchers. We
+deliberately don't. Truncating Read output causes silent agent
+confusion: the agent assumes it saw the full file and makes wrong
+decisions. The token savings rarely outweigh the iteration cost or
+correctness risk. PostToolUse can't modify output at all (only add
+feedback). We may reconsider in a future version with an opt-in beta
+once we have more usage data.
+
+**Q: Does the sub-agent context injection cost tokens?**
+
+A: Yes — the `additionalContext` text (~300 chars / ~80 tokens) is
+prepended to every sub-agent prompt. We keep it intentionally short.
+It's recorded in `subagent_activations` as a counter only; the savings
+report shows the number of activations but no byte/token "savings"
+because there is no measurable raw-vs-filtered comparison for context
+injection.
 
 ---
 
@@ -333,6 +374,12 @@ Environment overrides:
 - **Hook auto-allows mapped commands.** The Claude Code permission
   prompt is bypassed for the subset `flart rewrite` matches. Everything
   else (git, npm, gh, …) still goes through the normal permission flow.
+- **Tool output mutation is read-only.** Claude Code's `PostToolUse`
+  hook can add feedback but cannot replace the tool output the agent
+  sees. flart only intercepts at the `PreToolUse` boundary (rewriting
+  the command before it runs, or injecting sub-agent context before the
+  spawn). We will not silently truncate Read/Grep output (see
+  [Frequently misunderstood](#frequently-misunderstood)).
 
 ---
 

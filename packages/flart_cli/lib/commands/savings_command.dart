@@ -27,9 +27,17 @@ class SavingsCommand extends Command<int> {
           help: 'Relative (7d/24h/2w/3m) or ISO-8601 absolute timestamp.')
       ..addOption('until',
           help: 'Upper bound (exclusive). Same format as --since.')
+      ..addFlag('all',
+          negatable: false,
+          help: 'Report across every recorded project '
+              '(disables the default CWD filter).')
+      ..addOption('project-path',
+          help: 'Filter to invocations recorded for the given project root. '
+              'Overrides the default CWD scope.')
       ..addFlag('project',
           negatable: false,
-          help: 'Limit to the current project (detected from cwd).')
+          help: 'Deprecated alias for the default CWD scope. '
+              'Removed in v0.3.0.')
       ..addFlag('by-command',
           negatable: false,
           help: 'Group by flart subcommand.')
@@ -104,13 +112,21 @@ class SavingsCommand extends Command<int> {
         return 100;
       }
 
-      String? projectPath;
-      if (results['project'] as bool) {
-        projectPath = ProjectContext.detect().root;
+      final String? projectPath;
+      try {
+        projectPath = _resolveProjectScope(results, err: err);
+      } on _ConflictingScopeFlags catch (e) {
+        err.writeln('flart savings: ${e.message}');
+        return 100;
       }
 
       final agg = Aggregator(db);
       final summary = agg.summary(
+        since: since,
+        until: until,
+        projectPath: projectPath,
+      );
+      final subagentCount = agg.subagentActivationsCount(
         since: since,
         until: until,
         projectPath: projectPath,
@@ -124,6 +140,7 @@ class SavingsCommand extends Command<int> {
           byProject: agg.byProject(since: since, until: until),
           topCommands: agg.byCommand(
               since: since, until: until, projectPath: projectPath),
+          subagentActivations: subagentCount,
         );
         out.writeln(body);
         return 0;
@@ -194,12 +211,63 @@ class SavingsCommand extends Command<int> {
         byProject: agg.byProject(since: since, until: until),
         topCommands: agg.byCommand(
             since: since, until: until, projectPath: projectPath),
+        subagentActivations: subagentCount,
       );
       out.writeln(body);
       return 0;
     } finally {
       db.dispose();
     }
+  }
+
+  /// Project-scope resolution rules (v0.2.0):
+  ///
+  /// 1. `--all` → no filter; mutually exclusive with `--project-path` and
+  ///    `--project`.
+  /// 2. `--project-path=<path>` → explicit absolute path; mutually exclusive
+  ///    with `--project`.
+  /// 3. `--project` (boolean, deprecated) → equivalent to default CWD scope.
+  ///    Emits a one-line deprecation warning.
+  /// 4. None of the above → default to `ProjectContext.detect()`. When the
+  ///    CWD has no `pubspec.yaml` we fall back to `--all` and print a note,
+  ///    so users running `flart savings` from `~` don't get an empty report.
+  String? _resolveProjectScope(
+    dynamic results, {
+    required IOSink err,
+  }) {
+    final allFlag = results['all'] as bool;
+    final projectPath = results['project-path'] as String?;
+    final projectFlag = results['project'] as bool;
+
+    final scopeFlags =
+        [allFlag, projectPath != null, projectFlag].where((e) => e).length;
+    if (scopeFlags > 1) {
+      throw const _ConflictingScopeFlags(
+        '--all, --project-path, and --project are mutually exclusive.',
+      );
+    }
+
+    if (allFlag) return null;
+    if (projectPath != null) return projectPath;
+    if (projectFlag) {
+      err.writeln(
+        'flart savings: --project is deprecated and will be removed in '
+        'v0.3.0; the default scope is now the current project. Use --all to '
+        'report across every project, or --project-path=<path> for explicit '
+        'scoping.',
+      );
+      return ProjectContext.detect().root;
+    }
+
+    final ctx = ProjectContext.detect();
+    if (!ctx.hasFlutterProject) {
+      err.writeln(
+        'flart savings: current directory is not inside a Flutter/Dart '
+        'project; showing all projects. Use --project-path=<path> to scope.',
+      );
+      return null;
+    }
+    return ctx.root;
   }
 
   Future<int> _handleReset(
@@ -253,4 +321,9 @@ class SavingsCommand extends Command<int> {
     if (home == null) return Directory.systemTemp.path;
     return p.join(home, '.local', 'share', 'flart');
   }
+}
+
+class _ConflictingScopeFlags implements Exception {
+  final String message;
+  const _ConflictingScopeFlags(this.message);
 }

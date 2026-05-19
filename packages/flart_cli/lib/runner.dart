@@ -18,6 +18,7 @@ import 'commands/init_command.dart';
 import 'commands/pub_command.dart';
 import 'commands/rewrite_command.dart';
 import 'commands/savings_command.dart';
+import 'commands/task_hook_command.dart';
 import 'commands/test_command.dart';
 import 'commands/test_wrap_command.dart';
 import 'commands/version_command.dart';
@@ -132,6 +133,12 @@ CommandRunner<int> createRunner({
     stdinOverride: stdinOverride,
   ));
   runner.addCommand(RewriteCommand(
+    stdoutOverride: stdoutOverride,
+    stderrOverride: stderrOverride,
+  ));
+  runner.addCommand(TaskHookCommand(
+    envOverride: envOverride,
+    stdinOverride: stdinOverride,
     stdoutOverride: stdoutOverride,
     stderrOverride: stderrOverride,
   ));

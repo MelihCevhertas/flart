@@ -10,6 +10,7 @@ class JsonFormatter {
     required List<GroupedSavings> byModule,
     required List<GroupedSavings> byProject,
     required List<GroupedSavings> topCommands,
+    int subagentActivations = 0,
     DateTime? generatedAt,
   }) {
     final doc = <String, Object?>{
@@ -27,6 +28,7 @@ class JsonFormatter {
         'est_filtered_tokens': summary.estFiltTokens,
         'est_tokens_saved': summary.tokensSaved,
         'token_savings_ratio': summary.tokenSavingsRatio,
+        'subagent_activations': subagentActivations,
       },
       'by_module': byModule.map(_groupToJson).toList(),
       'by_project': byProject.map(_groupToJson).toList(),

@@ -5,6 +5,84 @@ All notable changes to flart will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-05-19
+
+Follow-up release after v0.1.0 Wonderous validation. Two themes: better
+defaults for the savings report (most users wanted the current project's
+number first), and a way to nudge spawned sub-agents toward flart
+commands without rewriting their prompts by hand.
+
+### Added
+
+- **PreToolUse / Task hook.** `flart init` now installs a second hook
+  entry alongside the Bash matcher. When the parent agent spawns a
+  sub-agent via the Task tool, the hook records the activation in
+  `subagent_activations` (new SQLite table, migration v2) and emits
+  `hookSpecificOutput.additionalContext` carrying a short flart usage
+  reminder that Claude Code merges into the sub-agent prompt. Script:
+  `~/.config/flart/hooks/task_hook.sh` → `flart task-hook` (hidden
+  subcommand). Soft-fails when `flart` isn't on PATH.
+- **`flart savings --all`** for the old cumulative-across-projects view.
+- **`flart savings --project-path=<path>`** for explicit project
+  scoping (e.g. inspecting another checkout from elsewhere).
+- **`subagent_activations` count** in `flart savings` text output
+  (headline line, only shown when > 0) and JSON output
+  (`summary.subagent_activations`, always present).
+
+### Changed
+
+- **`flart savings` default scope.** Without flags, the report now
+  scopes to the current project's `pubspec.yaml` root instead of the
+  all-projects total. Running outside any Flutter/Dart project falls
+  back to `--all` automatically with an explanatory note on stderr.
+- **`flart init` preview text** lists both hook scripts (Bash + Task)
+  and mentions the sub-agent context injection. `--show` reports the
+  install status of both scripts and entries; `--check` adds a fifth
+  probe for the Task script.
+- **CLAUDE.md routing block** gains a one-line mention that sub-agents
+  inherit the same routing automatically.
+
+### Deprecated
+
+- **`flart savings --project`** (boolean flag) is deprecated. It still
+  scopes to the current project (equivalent to the new default) but
+  prints a deprecation warning on stderr. To be removed in v0.3.0.
+  Replacement: just call `flart savings` (default), or use
+  `--project-path=<path>` for explicit scoping.
+
+### Schema
+
+- Migration **v2** adds `subagent_activations(id, timestamp,
+  project_path, parent_session_id)` plus two indexes
+  (`idx_subagent_timestamp`, `idx_subagent_project`). Additive only —
+  existing `invocations` table and indexes are untouched.
+
+### Decision log
+
+- **Read/Grep/Edit matchers deliberately excluded.** Claude Code's hook
+  API would support intercepting these, but: (a) silent truncation of
+  Read causes the agent to make decisions on missing content; (b)
+  PostToolUse can only add feedback, not replace output, so any
+  filtering happens *before* the tool runs which is blind to the actual
+  result; (c) the token savings rarely outweigh the iteration cost. May
+  revisit in a future opt-in beta. See README "Frequently
+  misunderstood".
+- **`SubagentStart` event not used.** Listed in some Claude Code
+  releases but currently unstable (GH issue #27755 settings.json
+  trigger failures, #19170 schema gaps). `PreToolUse` matcher `Task`
+  is dokumante and stable in v2.0.10+; it fires when the parent invokes
+  the Task tool, and the injected `additionalContext` is what reaches
+  the sub-agent.
+
+### Internal
+
+- 9 new tests: 4 for `SubagentActivationRepo`, 5 for `flart task-hook`,
+  7 for savings scope, 3 new installer tests, 2 for task-hook template
+  defaults, plus formatter coverage for the new fields.
+- Plan / decision log: [`flart_PLAN.md`](./flart_PLAN.md) v1.14.
+
+[0.2.0]: https://github.com/MelihCevhertas/flart/releases/tag/v0.2.0
+
 ## [0.1.0] — 2026-05-19 (first public release)
 
 First usable release. Targets macOS (Apple Silicon) + Linux (x64), Dart

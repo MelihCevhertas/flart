@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import 'templates/claude_md_block.dart';
 import 'templates/rewrite_sh.dart';
+import 'templates/task_hook_sh.dart';
 
 /// Outcome of a single `flart init --check` probe. Pretty-printed by the CLI
 /// in a two-column ✓/✗ table; [hint] is only shown when [ok] is false.
@@ -47,6 +48,11 @@ String resolveConfigHome(FlartEnv env) {
 String defaultHookScriptPath(String configHome) =>
     p.join(configHome, 'flart', 'hooks', 'rewrite.sh');
 
+/// Convenience: `<configHome>/flart/hooks/task_hook.sh` — PreToolUse/Task
+/// companion to `rewrite.sh`. Added in v0.2.0.
+String defaultTaskHookScriptPath(String configHome) =>
+    p.join(configHome, 'flart', 'hooks', 'task_hook.sh');
+
 /// Default Claude Code settings path: `~/.claude/settings.json`.
 /// Test injection: pass an explicit value to [HookInstaller].
 String defaultClaudeSettingsPath(FlartEnv env) {
@@ -76,40 +82,48 @@ void atomicWriteString(String path, String content,
 }
 
 /// Reads/writes the Claude Code `settings.json` to install or remove the
-/// flart PreToolUse hook. Idempotent: re-running `install` updates the
-/// command path if it changed; `uninstall` is a no-op when not installed.
+/// flart PreToolUse hooks. As of v0.2.0 manages two entries:
+///   - matcher `Bash` → rewrite.sh (command auto-rewrite)
+///   - matcher `Task` → task_hook.sh (sub-agent context injection)
+/// Idempotent: re-running `install` updates command paths; `uninstall` is a
+/// no-op when not installed.
 ///
-/// **Savings DB is never touched by this class.** Uninstall removes only
-/// the Claude Code integration (settings.json entry + hook script). Users
-/// who want to wipe history use `flart savings --reset`.
+/// **Savings DB is never touched by this class.** Uninstall removes only the
+/// Claude Code integration (settings.json entries + hook scripts). Users who
+/// want to wipe history use `flart savings --reset`.
 class HookInstaller {
   final String settingsPath;
   final String hookScriptPath;
+  final String taskHookScriptPath;
 
   const HookInstaller({
     required this.settingsPath,
     required this.hookScriptPath,
+    required this.taskHookScriptPath,
   });
 
-  /// Writes the hook script + updates settings.json (atomic). Returns a
+  /// Writes both hook scripts + updates settings.json (atomic). Returns a
   /// short description of what changed (suitable for printing).
   List<String> installAll() {
     final messages = <String>[];
-    messages.add(_writeHookScript());
+    messages.add(_writeScript(hookScriptPath, hookScriptTemplate));
+    messages.add(_writeScript(taskHookScriptPath, taskHookScriptTemplate));
     messages.add(_editSettings(install: true));
     return messages;
   }
 
-  /// Removes the hook entry from settings.json AND deletes the hook script
-  /// file (the inverse of installAll). Savings DB is **not** touched.
+  /// Removes both flart entries from settings.json AND deletes the hook
+  /// script files (the inverse of installAll). Savings DB is **not** touched.
   List<String> uninstallAll() {
     final messages = <String>[_editSettings(install: false)];
-    final script = File(hookScriptPath);
-    if (script.existsSync()) {
-      script.deleteSync();
-      messages.add('Removed hook script $hookScriptPath');
-    } else {
-      messages.add('Hook script already absent ($hookScriptPath).');
+    for (final path in [hookScriptPath, taskHookScriptPath]) {
+      final script = File(path);
+      if (script.existsSync()) {
+        script.deleteSync();
+        messages.add('Removed hook script $path');
+      } else {
+        messages.add('Hook script already absent ($path).');
+      }
     }
     return messages;
   }
@@ -117,25 +131,30 @@ class HookInstaller {
   /// Multi-line status summary for `flart init --show`.
   String describeState() {
     final buf = StringBuffer();
-    buf.writeln('Hook script:   '
+    buf.writeln('Hook script (Bash): '
         '${File(hookScriptPath).existsSync() ? "✓ $hookScriptPath" : "✗ not installed"}');
+    buf.writeln('Hook script (Task): '
+        '${File(taskHookScriptPath).existsSync() ? "✓ $taskHookScriptPath" : "✗ not installed"}');
     final settingsFile = File(settingsPath);
     if (!settingsFile.existsSync()) {
-      buf.write('settings.json: ✗ $settingsPath not found');
+      buf.write('settings.json:      ✗ $settingsPath not found');
       return buf.toString();
     }
-    final entry = _findFlartHookEntry(_loadSettings(settingsFile));
-    if (entry == null) {
-      buf.write('settings.json: ✗ no flart PreToolUse hook entry');
-    } else {
-      buf.write('settings.json: ✓ points to ${entry['command']}');
-    }
+    final settings = _loadSettings(settingsFile);
+    final bashEntry = _findFlartEntry(settings, matcher: 'Bash');
+    final taskEntry = _findFlartEntry(settings, matcher: 'Task');
+    buf.writeln(bashEntry == null
+        ? 'settings.json (Bash): ✗ no flart entry'
+        : 'settings.json (Bash): ✓ points to ${bashEntry['command']}');
+    buf.write(taskEntry == null
+        ? 'settings.json (Task): ✗ no flart entry'
+        : 'settings.json (Task): ✓ points to ${taskEntry['command']}');
     return buf.toString();
   }
 
-  String _writeHookScript() {
-    atomicWriteString(hookScriptPath, hookScriptTemplate, executable: true);
-    return 'Wrote hook script to $hookScriptPath';
+  String _writeScript(String path, String content) {
+    atomicWriteString(path, content, executable: true);
+    return 'Wrote hook script to $path';
   }
 
   String _editSettings({required bool install}) {
@@ -153,50 +172,63 @@ class HookInstaller {
         : <String, dynamic>{};
     final preToolUse =
         (hooksRoot['PreToolUse'] as List?)?.cast<dynamic>() ?? <dynamic>[];
-    final preToolUseMutable = preToolUse.toList();
+    final mutable = preToolUse.toList();
 
-    final existingIndex = preToolUseMutable.indexWhere(_isFlartEntry);
-
-    String action;
-    if (install) {
-      final newEntry = {
-        'matcher': 'Bash',
-        'hooks': [
-          {'type': 'command', 'command': hookScriptPath},
-        ],
-      };
-      if (existingIndex >= 0) {
-        preToolUseMutable[existingIndex] = newEntry;
-        action = 'Updated flart hook entry';
+    final actions = <String>[];
+    for (final pair in [
+      _MatcherSpec(matcher: 'Bash', scriptPath: hookScriptPath),
+      _MatcherSpec(matcher: 'Task', scriptPath: taskHookScriptPath),
+    ]) {
+      final existingIndex = mutable.indexWhere(
+          (e) => _isFlartEntryFor(e, matcher: pair.matcher));
+      if (install) {
+        final newEntry = {
+          'matcher': pair.matcher,
+          'hooks': [
+            {'type': 'command', 'command': pair.scriptPath},
+          ],
+        };
+        if (existingIndex >= 0) {
+          mutable[existingIndex] = newEntry;
+          actions.add('updated ${pair.matcher} hook');
+        } else {
+          mutable.add(newEntry);
+          actions.add('installed ${pair.matcher} hook');
+        }
       } else {
-        preToolUseMutable.add(newEntry);
-        action = 'Installed flart hook entry';
+        if (existingIndex >= 0) {
+          mutable.removeAt(existingIndex);
+          actions.add('removed ${pair.matcher} hook');
+        }
       }
-    } else {
-      if (existingIndex < 0) {
-        return 'settings.json: flart hook was not installed; nothing to do.';
-      }
-      preToolUseMutable.removeAt(existingIndex);
-      action = 'Removed flart hook entry';
     }
 
-    hooksRoot['PreToolUse'] = preToolUseMutable;
+    if (actions.isEmpty) {
+      return 'settings.json: no flart entries; nothing to do.';
+    }
+
+    hooksRoot['PreToolUse'] = mutable;
     settings['hooks'] = hooksRoot;
 
     final pretty = const JsonEncoder.withIndent('  ').convert(settings);
     atomicWriteString(settingsPath, '$pretty\n');
-    return '$action in $settingsPath';
+    return 'settings.json: ${actions.join(', ')}.';
   }
 
-  bool _isFlartEntry(dynamic e) {
+  /// True when [e] is a flart entry for the given matcher. Recognised by
+  /// the hooks[0].command ending in `/rewrite.sh` (Bash) or `/task_hook.sh`
+  /// (Task) — same convention the installer uses on write.
+  bool _isFlartEntryFor(dynamic e, {required String matcher}) {
     if (e is! Map) return false;
-    if (e['matcher'] != 'Bash') return false;
+    if (e['matcher'] != matcher) return false;
     final hooks = e['hooks'];
     if (hooks is! List || hooks.isEmpty) return false;
     final h = hooks.first;
-    return h is Map &&
-        h['command'] is String &&
-        (h['command'] as String).endsWith('/rewrite.sh');
+    if (h is! Map || h['command'] is! String) return false;
+    final cmd = h['command'] as String;
+    if (matcher == 'Bash') return cmd.endsWith('/rewrite.sh');
+    if (matcher == 'Task') return cmd.endsWith('/task_hook.sh');
+    return false;
   }
 
   Map<String, dynamic> _loadSettings(File file) {
@@ -209,18 +241,27 @@ class HookInstaller {
     return Map<String, dynamic>.from(decoded);
   }
 
-  Map<String, dynamic>? _findFlartHookEntry(Map<String, dynamic> settings) {
+  Map<String, dynamic>? _findFlartEntry(
+    Map<String, dynamic> settings, {
+    required String matcher,
+  }) {
     final hooks = settings['hooks'];
     if (hooks is! Map) return null;
     final preToolUse = hooks['PreToolUse'];
     if (preToolUse is! List) return null;
     for (final e in preToolUse) {
-      if (_isFlartEntry(e)) {
+      if (_isFlartEntryFor(e, matcher: matcher)) {
         return Map<String, dynamic>.from((e as Map)['hooks'][0] as Map);
       }
     }
     return null;
   }
+}
+
+class _MatcherSpec {
+  final String matcher;
+  final String scriptPath;
+  const _MatcherSpec({required this.matcher, required this.scriptPath});
 }
 
 /// Installs/updates/removes the flart routing block in a project's CLAUDE.md.
@@ -307,6 +348,7 @@ class HookChecker {
   Future<List<CheckResult>> diagnose({
     required String settingsPath,
     required String hookScriptPath,
+    String? taskHookScriptPath,
     String? projectClaudeMdPath,
   }) async {
     final results = <CheckResult>[];
@@ -338,7 +380,7 @@ class HookChecker {
         label: 'Claude Code settings.json',
         ok: false,
         detail: '$settingsPath not present',
-        hint: 'Run `flart init --global` to install the hook entry '
+        hint: 'Run `flart init --global` to install the hook entries '
             '(creates the file if missing).',
       ));
     } else {
@@ -361,13 +403,25 @@ class HookChecker {
 
     final scriptInstalled = File(hookScriptPath).existsSync();
     results.add(CheckResult(
-      label: 'Hook script',
+      label: 'Hook script (Bash)',
       ok: scriptInstalled,
       detail: scriptInstalled ? hookScriptPath : 'not installed',
       hint: scriptInstalled
           ? null
           : 'Run `flart init --global` to write it.',
     ));
+
+    if (taskHookScriptPath != null) {
+      final taskInstalled = File(taskHookScriptPath).existsSync();
+      results.add(CheckResult(
+        label: 'Hook script (Task)',
+        ok: taskInstalled,
+        detail: taskInstalled ? taskHookScriptPath : 'not installed',
+        hint: taskInstalled
+            ? null
+            : 'Run `flart init --global` to write it.',
+      ));
+    }
 
     if (projectClaudeMdPath != null) {
       final cmFile = File(projectClaudeMdPath);

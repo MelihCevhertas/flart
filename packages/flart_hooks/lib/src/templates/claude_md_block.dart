@@ -40,4 +40,8 @@ For data/analysis questions ("how many providers", "count files matching X",
 
 The executor runs the script in a sandbox and returns only the result,
 which keeps tool output out of your context window.
+
+Sub-agents (Task tool): when you spawn one, the PreToolUse/Task hook
+prepends a short flart usage reminder to its prompt automatically, so
+the same routing applies inside the sub-agent without any extra setup.
 $claudeMdMarkerEnd''';

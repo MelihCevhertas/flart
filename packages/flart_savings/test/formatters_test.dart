@@ -87,6 +87,47 @@ void main() {
       expect(body, contains('flart analyze'));
       expect(body, contains('40'));
     });
+
+    test('sub-agent activations line appears only when count > 0', () {
+      final noSubs = TextFormatter().render(
+        summary: summary,
+        byModule: byModule,
+        byProject: const [],
+        topCommands: byCommand,
+      );
+      expect(noSubs, isNot(contains('Sub-agent activations')));
+
+      final withSubs = TextFormatter().render(
+        summary: summary,
+        byModule: byModule,
+        byProject: const [],
+        topCommands: byCommand,
+        subagentActivations: 7,
+      );
+      expect(withSubs, contains('Sub-agent activations:'));
+      expect(withSubs, contains('7'));
+    });
+
+    test('empty summary with sub-agent activations only still renders headline',
+        () {
+      final out = TextFormatter().render(
+        summary: const SavingsSummary(
+          invocations: 0,
+          rawBytes: 0,
+          filteredBytes: 0,
+          rawChars: 0,
+          filteredChars: 0,
+          estRawTokens: 0,
+          estFiltTokens: 0,
+        ),
+        byModule: const [],
+        byProject: const [],
+        topCommands: const [],
+        subagentActivations: 3,
+      );
+      expect(out, contains('Sub-agent activations:'));
+      expect(out, isNot(contains('No invocations recorded yet')));
+    });
   });
 
   group('JsonFormatter', () {
@@ -103,9 +144,25 @@ void main() {
       final s = decoded['summary'] as Map<String, Object?>;
       expect(s['invocations'], 100);
       expect(s['est_tokens_saved'], summary.tokensSaved);
+      // v0.2.0: subagent_activations key is always present, default 0.
+      expect(s['subagent_activations'], 0);
       final modules = decoded['by_module'] as List;
       expect(modules.length, 2);
       expect((modules.first as Map)['label'], 'filter');
+    });
+
+    test('subagent_activations carries through when provided', () {
+      final body = JsonFormatter().render(
+        summary: summary,
+        byModule: byModule,
+        byProject: const [],
+        topCommands: byCommand,
+        subagentActivations: 12,
+        generatedAt: DateTime.utc(2026, 5, 18, 12),
+      );
+      final decoded = jsonDecode(body) as Map<String, Object?>;
+      final s = decoded['summary'] as Map<String, Object?>;
+      expect(s['subagent_activations'], 12);
     });
   });
 

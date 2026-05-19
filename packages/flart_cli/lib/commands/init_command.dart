@@ -24,6 +24,7 @@ class InitCommand extends Command<int> {
   /// these from env via [resolveConfigHome] / [defaultClaudeSettingsPath].
   final String? _settingsPathOverride;
   final String? _hookScriptPathOverride;
+  final String? _taskHookScriptPathOverride;
   final String? _claudeMdPathOverride;
 
   /// Injectable PATH probe (`flart init --check`). Defaults to running
@@ -37,6 +38,7 @@ class InitCommand extends Command<int> {
     Stream<List<int>>? stdinOverride,
     String? settingsPathOverride,
     String? hookScriptPathOverride,
+    String? taskHookScriptPathOverride,
     String? claudeMdPathOverride,
     Future<String?> Function(String exe)? whichExeOverride,
   })  : _envOverride = envOverride,
@@ -45,6 +47,7 @@ class InitCommand extends Command<int> {
         _stdinOverride = stdinOverride,
         _settingsPathOverride = settingsPathOverride,
         _hookScriptPathOverride = hookScriptPathOverride,
+        _taskHookScriptPathOverride = taskHookScriptPathOverride,
         _claudeMdPathOverride = claudeMdPathOverride,
         _whichExeOverride = whichExeOverride {
     argParser
@@ -96,6 +99,7 @@ class InitCommand extends Command<int> {
     final hookInstaller = HookInstaller(
       settingsPath: paths.settingsPath,
       hookScriptPath: paths.hookScriptPath,
+      taskHookScriptPath: paths.taskHookScriptPath,
     );
     final projectInstaller = ProjectInstaller(claudeMdPath: paths.claudeMdPath);
 
@@ -113,6 +117,7 @@ class InitCommand extends Command<int> {
       final probes = await checker.diagnose(
         settingsPath: paths.settingsPath,
         hookScriptPath: paths.hookScriptPath,
+        taskHookScriptPath: paths.taskHookScriptPath,
         projectClaudeMdPath: paths.claudeMdPath,
       );
       out.writeln(renderCheckTable(probes));
@@ -208,12 +213,14 @@ class InitCommand extends Command<int> {
       'flart init will perform the following:\n',
     );
     if (scope.global) {
-      buf.writeln('  • Write hook script to ${paths.hookScriptPath}');
+      buf.writeln('  • Write hook scripts to:');
+      buf.writeln('      ${paths.hookScriptPath}');
+      buf.writeln('      ${paths.taskHookScriptPath}');
       buf.writeln(
-          '  • Add a PreToolUse / Bash matcher to ${paths.settingsPath}');
+          '  • Add PreToolUse matchers (Bash, Task) to ${paths.settingsPath}');
       buf.writeln(
-          '    Hook auto-allows commands the rewriter maps (bypasses '
-          'per-call permission prompts for flart-mapped tools only).');
+          '    Bash matcher auto-allows commands the rewriter maps; Task '
+          'matcher injects a flart usage hint into spawned sub-agents.');
       buf.writeln('    Other commands flow through Claude Code normally.');
     }
     if (scope.project) {
@@ -231,13 +238,17 @@ class InitCommand extends Command<int> {
   _Paths _resolvePaths(FlartEnv env) {
     final settingsPath =
         _settingsPathOverride ?? defaultClaudeSettingsPath(env);
-    final hookScriptPath = _hookScriptPathOverride ??
-        defaultHookScriptPath(resolveConfigHome(env));
+    final configHome = resolveConfigHome(env);
+    final hookScriptPath =
+        _hookScriptPathOverride ?? defaultHookScriptPath(configHome);
+    final taskHookScriptPath =
+        _taskHookScriptPathOverride ?? defaultTaskHookScriptPath(configHome);
     final claudeMdPath = _claudeMdPathOverride ??
         p.join(ProjectContext.detect().root, 'CLAUDE.md');
     return _Paths(
       settingsPath: settingsPath,
       hookScriptPath: hookScriptPath,
+      taskHookScriptPath: taskHookScriptPath,
       claudeMdPath: claudeMdPath,
     );
   }
@@ -263,10 +274,12 @@ class _Scope {
 class _Paths {
   final String settingsPath;
   final String hookScriptPath;
+  final String taskHookScriptPath;
   final String claudeMdPath;
   const _Paths({
     required this.settingsPath,
     required this.hookScriptPath,
+    required this.taskHookScriptPath,
     required this.claudeMdPath,
   });
 }

@@ -84,31 +84,43 @@ void main() {
     late HookInstaller installer;
     late String settingsPath;
     late String hookScriptPath;
+    late String taskHookScriptPath;
 
     setUp(() {
       tmp = Directory.systemTemp.createTempSync('flart_inst_');
       addTearDown(() => tmp.deleteSync(recursive: true));
       settingsPath = p.join(tmp.path, '.claude', 'settings.json');
       hookScriptPath = p.join(tmp.path, '.config', 'flart', 'hooks', 'rewrite.sh');
+      taskHookScriptPath = p.join(tmp.path, '.config', 'flart', 'hooks', 'task_hook.sh');
       installer = HookInstaller(
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
       );
     });
 
-    test('fresh install creates settings.json + hook script', () {
+    List<Map<String, Object?>> preToolUseEntries(String path) {
+      final settings = jsonDecode(File(path).readAsStringSync())
+          as Map<String, Object?>;
+      return ((settings['hooks'] as Map)['PreToolUse'] as List)
+          .cast<Map<String, Object?>>();
+    }
+
+    test('fresh install writes both scripts + adds Bash & Task entries', () {
       installer.installAll();
       expect(File(hookScriptPath).existsSync(), isTrue);
-      final settings = jsonDecode(File(settingsPath).readAsStringSync())
-          as Map<String, Object?>;
-      final hooks = (settings['hooks'] as Map)['PreToolUse'] as List;
-      expect(hooks.length, 1);
-      final entry = hooks.first as Map;
-      expect(entry['matcher'], 'Bash');
-      expect((entry['hooks'] as List).first['command'], hookScriptPath);
+      expect(File(taskHookScriptPath).existsSync(), isTrue);
+      final entries = preToolUseEntries(settingsPath);
+      expect(entries.length, 2);
+      final bash =
+          entries.firstWhere((e) => e['matcher'] == 'Bash');
+      expect((bash['hooks'] as List).first['command'], hookScriptPath);
+      final task =
+          entries.firstWhere((e) => e['matcher'] == 'Task');
+      expect((task['hooks'] as List).first['command'], taskHookScriptPath);
     });
 
-    test('install preserves unrelated fields in existing settings.json', () {
+    test('install preserves unrelated fields and other Bash hooks', () {
       Directory(p.dirname(settingsPath)).createSync(recursive: true);
       File(settingsPath).writeAsStringSync(jsonEncode({
         'theme': 'dark',
@@ -127,40 +139,43 @@ void main() {
       installer.installAll();
       final settings = jsonDecode(File(settingsPath).readAsStringSync())
           as Map<String, Object?>;
-      // User's other fields preserved.
       expect(settings['theme'], 'dark');
       expect(settings['model'], 'sonnet');
-      // PreToolUse now has BOTH entries (other hook untouched, flart added).
-      final hooks = (settings['hooks'] as Map)['PreToolUse'] as List;
-      expect(hooks.length, 2);
+      final entries = preToolUseEntries(settingsPath);
+      // Unrelated Bash hook + flart Bash + flart Task = 3 entries.
+      expect(entries.length, 3);
       expect(
-        hooks.any((e) =>
-            (e as Map)['matcher'] == 'Bash' &&
+        entries.any((e) =>
+            e['matcher'] == 'Bash' &&
             ((e['hooks'] as List).first as Map)['command'] ==
                 '/some/other/hook.sh'),
         isTrue,
       );
       expect(
-        hooks.any((e) =>
-            ((e as Map)['hooks'] as List).first['command'] == hookScriptPath),
+        entries.any((e) =>
+            ((e['hooks'] as List).first as Map)['command'] == hookScriptPath),
+        isTrue,
+      );
+      expect(
+        entries.any((e) =>
+            ((e['hooks'] as List).first as Map)['command'] ==
+            taskHookScriptPath),
         isTrue,
       );
     });
 
-    test('second install updates the same entry (no duplicate)', () {
+    test('second install updates same entries (no duplicates)', () {
       installer.installAll();
       installer.installAll();
-      final settings = jsonDecode(File(settingsPath).readAsStringSync())
-          as Map<String, Object?>;
-      final hooks = (settings['hooks'] as Map)['PreToolUse'] as List;
-      final flartEntries = hooks.where((e) =>
-          ((e as Map)['hooks'] as List).first['command'] == hookScriptPath);
-      expect(flartEntries.length, 1);
+      final entries = preToolUseEntries(settingsPath);
+      final flartEntries = entries.where((e) {
+        final cmd = ((e['hooks'] as List).first as Map)['command'];
+        return cmd == hookScriptPath || cmd == taskHookScriptPath;
+      });
+      expect(flartEntries.length, 2);
     });
 
-    test('uninstall removes flart entry + deletes hook script, keeps others',
-        () {
-      // Plant another hook + install flart.
+    test('uninstall removes both flart entries + scripts, keeps others', () {
       Directory(p.dirname(settingsPath)).createSync(recursive: true);
       File(settingsPath).writeAsStringSync(jsonEncode({
         'hooks': {
@@ -177,22 +192,26 @@ void main() {
       installer.installAll();
       installer.uninstallAll();
       expect(File(hookScriptPath).existsSync(), isFalse);
-      final settings = jsonDecode(File(settingsPath).readAsStringSync())
-          as Map<String, Object?>;
-      final hooks = (settings['hooks'] as Map)['PreToolUse'] as List;
-      expect(hooks.length, 1);
+      expect(File(taskHookScriptPath).existsSync(), isFalse);
+      final entries = preToolUseEntries(settingsPath);
+      expect(entries.length, 1);
       expect(
-        ((hooks.first as Map)['hooks'] as List).first['command'],
+        ((entries.first['hooks'] as List).first as Map)['command'],
         '/some/other/hook.sh',
       );
     });
 
-    test('describeState reports installed vs missing', () {
-      expect(installer.describeState(), contains('not installed'));
+    test('describeState reports installed vs missing for both hooks', () {
+      final state0 = installer.describeState();
+      expect(state0, contains('Hook script (Bash)'));
+      expect(state0, contains('Hook script (Task)'));
+      expect(state0, contains('not installed'));
       installer.installAll();
       final state = installer.describeState();
       expect(state, contains('✓ $hookScriptPath'));
-      expect(state, contains('✓ points to $hookScriptPath'));
+      expect(state, contains('✓ $taskHookScriptPath'));
+      expect(state, contains('points to $hookScriptPath'));
+      expect(state, contains('points to $taskHookScriptPath'));
     });
   });
 
@@ -268,12 +287,14 @@ void main() {
     late Directory tmp;
     late String settingsPath;
     late String hookScriptPath;
+    late String taskHookScriptPath;
 
     setUp(() {
       tmp = Directory.systemTemp.createTempSync('flart_check_');
       addTearDown(() => tmp.deleteSync(recursive: true));
       settingsPath = p.join(tmp.path, '.claude', 'settings.json');
       hookScriptPath = p.join(tmp.path, '.config', 'flart', 'hooks', 'rewrite.sh');
+      taskHookScriptPath = p.join(tmp.path, '.config', 'flart', 'hooks', 'task_hook.sh');
     });
 
     test('clean install: all checks pass', () async {
@@ -281,12 +302,14 @@ void main() {
       Directory(p.dirname(hookScriptPath)).createSync(recursive: true);
       File(settingsPath).writeAsStringSync('{}');
       File(hookScriptPath).writeAsStringSync('#!/bin/bash\n');
+      File(taskHookScriptPath).writeAsStringSync('#!/bin/bash\n');
       final checker = HookChecker(
         whichExe: (exe) async => '/fake/$exe',
       );
       final results = await checker.diagnose(
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
       );
       expect(results.every((r) => r.ok), isTrue);
     });
@@ -298,10 +321,30 @@ void main() {
       final results = await checker.diagnose(
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
       );
       final jq = results.firstWhere((r) => r.label == 'jq');
       expect(jq.ok, isFalse);
       expect(jq.hint, contains('brew install jq'));
+    });
+
+    test('Task hook missing → reported with hint', () async {
+      Directory(p.dirname(settingsPath)).createSync(recursive: true);
+      Directory(p.dirname(hookScriptPath)).createSync(recursive: true);
+      File(settingsPath).writeAsStringSync('{}');
+      File(hookScriptPath).writeAsStringSync('#!/bin/bash\n');
+      // task_hook.sh intentionally absent.
+      final checker = HookChecker(
+        whichExe: (exe) async => '/fake/$exe',
+      );
+      final results = await checker.diagnose(
+        settingsPath: settingsPath,
+        hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
+      );
+      final task = results.firstWhere((r) => r.label == 'Hook script (Task)');
+      expect(task.ok, isFalse);
+      expect(task.hint, contains('flart init --global'));
     });
 
     test('rendered table shows ✓/✗ with hint indentation', () async {
@@ -311,6 +354,7 @@ void main() {
       final results = await checker.diagnose(
         settingsPath: settingsPath,
         hookScriptPath: hookScriptPath,
+        taskHookScriptPath: taskHookScriptPath,
       );
       final rendered = renderCheckTable(results);
       expect(rendered, contains('✓ flart binary'));
