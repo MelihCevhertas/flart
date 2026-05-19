@@ -145,21 +145,13 @@ void main() {
       expect(rows.first.rawBytes, greaterThan(rows.first.filteredBytes));
     });
 
-    test('anti-bloat fallback: short lines + filter overhead → bypass',
-        () async {
-      // 50 lines of "line N" (7-byte avg) — head/tail metadata exceeds the
-      // body savings. Filter must bypass instead of inflating the output.
-      final r = await _run(env: env, input: {
-        'tool_input': {'command': 'echo many'},
-        'tool_response': {'stdout': _bigOutput(50), 'stderr': '', 'exit_code': 0},
-        'cwd': '/proj',
-      });
-      expect(r.code, 0);
-      expect(r.stdout.trim(), isEmpty,
-          reason: 'bypass produces empty body — agent sees raw output');
-      expect(File(dbPath).existsSync(), isFalse,
-          reason: 'no mutation → no DB row');
-    });
+    // Anti-bloat fallback is covered deterministically in
+    // bash_post_filter_test.dart with a controlled teePath. A CLI-level
+    // assertion is platform-brittle here because Directory.systemTemp's
+    // path length differs between macOS (~99 chars under /private/var/...)
+    // and Linux (~55 chars under /tmp/...), and the tee-path footer is
+    // exactly what tips short outputs over the bloat threshold on macOS
+    // while staying under it on Linux.
 
     test('large output (300 lines) → head/tail + error grep', () async {
       final body = [
